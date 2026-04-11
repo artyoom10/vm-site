@@ -32,9 +32,9 @@ if ($cookieSecureEnv !== false && $cookieSecureEnv !== '') {
     define('COOKIE_SECURE', $https);
 }
 
-// В production: VM_AUTH_DISABLED=0. По умолчанию «1» для локальной разработки без входа.
+// Локально без входа: задайте VM_AUTH_DISABLED=1 в окружении.
 define('AUTH_DISABLED', filter_var(
-    getenv('VM_AUTH_DISABLED') ?: '1',
+    getenv('VM_AUTH_DISABLED') ?: '0',
     FILTER_VALIDATE_BOOLEAN
 ));
 
