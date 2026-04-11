@@ -1,6 +1,6 @@
 # VM RGU — веб-интерфейс
 
-Корень для **DocumentRoot** (или копируйте содержимое `vm-site/` на сервер как корень сайта).
+Корень для **DocumentRoot** (или копируйте содержимое репозитория на сервер как корень сайта).
 
 ## Структура
 
@@ -10,20 +10,15 @@
 | `login.php` | Страница входа (Supabase) |
 | `api/` | `dataset.php`, `auth.php`, `report.php`, `refresh.php` |
 | `includes/` | `bootstrap.php`, сессия, заголовки |
-| `storage/` | `config.php`, датасет JSON (не отдаётся напрямую веб-сервером — вынесите за пределы public при жёсткой политике) |
-| `css/app.css` | Собранные стили (раньше были `styles` + `components` + `responsive` + `theme-dark-shell`) |
+| `storage/` | `config.php` (Supabase и пути), датасет JSON |
+| `css/app.css` | Собранные стили |
 | `js/` | `data-loader.js`, `router.js`, `utils.js`, страницы в `js/pages/` |
 
-## Первый запуск после `git clone`
+## После `git clone`
 
-1. Скопируйте конфиг: `storage/config.example.php` → `storage/config.php` и задайте Supabase URL и anon key **или** переменные окружения `SUPABASE_URL`, `SUPABASE_ANON_KEY`.
-2. Положите датасет в `storage/multihost_openvas_dataset.json` (или поправьте путь в конфиге).
+1. Убедитесь, что в `storage/` есть `multihost_openvas_dataset.json` (в репозитории он уже есть).
+2. При деплое при необходимости переопределите параметры через переменные окружения (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `VM_AUTH_DISABLED`, `VM_COOKIE_SECURE` и т.д.).
 
 ## Деплой
 
-1. На сервере: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, при необходимости `VM_AUTH_DISABLED=0`, `VM_COOKIE_SECURE=1`, `REPORT_API_BASE`.
-2. Настройте PHP с `curl` и cookies.
-
-## Git
-
-Файл `storage/config.php` в репозиторий не попадает (секреты). В индексе только `storage/config.example.php`.
+Настройте PHP с поддержкой `curl` и корректной работой cookie (HTTPS → `VM_COOKIE_SECURE=1` при необходимости).

@@ -1,7 +1,6 @@
 <?php
 /**
- * Скопируйте в config.php и подставьте значения, либо задайте переменные окружения.
- * Файл storage/config.php в репозиторий не коммитится.
+ * Конфигурация: vm-site/storage (не отдаётся как статика; ключи можно переопределить через env).
  */
 declare(strict_types=1);
 
@@ -11,13 +10,13 @@ $vmDatasetPath = $vmStorageDir . DIRECTORY_SEPARATOR . 'multihost_openvas_datase
 if (!defined('SUPABASE_URL')) {
     define(
         'SUPABASE_URL',
-        getenv('SUPABASE_URL') ?: 'https://YOUR_PROJECT.supabase.co'
+        getenv('SUPABASE_URL') ?: 'https://szttvzuyxsztudzqshkk.supabase.co'
     );
 }
 if (!defined('SUPABASE_ANON_KEY')) {
     define(
         'SUPABASE_ANON_KEY',
-        getenv('SUPABASE_ANON_KEY') ?: ''
+        getenv('SUPABASE_ANON_KEY') ?: 'sb_publishable_XL0MGN7X20qt0awNz-uucw_ed_eCzVV'
     );
 }
 
@@ -33,6 +32,7 @@ if ($cookieSecureEnv !== false && $cookieSecureEnv !== '') {
     define('COOKIE_SECURE', $https);
 }
 
+// В production: VM_AUTH_DISABLED=0. По умолчанию «1» для локальной разработки без входа.
 define('AUTH_DISABLED', filter_var(
     getenv('VM_AUTH_DISABLED') ?: '1',
     FILTER_VALIDATE_BOOLEAN

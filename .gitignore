@@ -1,6 +1,3 @@
-# Секреты — не коммитить (копируйте из storage/config.example.php)
-storage/config.php
-
 # Локальные/тяжёлые артефакты (раскомментируйте при необходимости)
 # storage/multihost_openvas_dataset.json
 
