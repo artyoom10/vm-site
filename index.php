@@ -168,7 +168,7 @@ function e(string $s): string {
           <button class="navbar-item" data-page="findings" onclick="router.navigate('findings')">Уязвимости</button>
           <button class="navbar-item" data-page="scans" onclick="router.navigate('scans')">Сканы</button>
           <button class="navbar-item" data-page="reports" onclick="router.navigate('reports')">Отчёты</button>
-          <button class="navbar-item" data-page="settings" onclick="router.navigate('settings')">Настройки</button>
+          <button class="navbar-item" data-page="settings" onclick="router.navigate('settings')">НастройкиБББ</button>
         </div>
       </div>
 
