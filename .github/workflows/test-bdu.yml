@@ -1,0 +1,79 @@
+name: Test BDU ZIP
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-bdu:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Download and inspect BDU ZIP
+        run: |
+          python - <<'PY'
+          import io
+          import zipfile
+          import urllib.request
+          import xml.etree.ElementTree as ET
+
+          URL = "https://bdu.fstec.ru/files/documents/vulxml.zip"
+
+          print("Downloading:", URL)
+          with urllib.request.urlopen(URL, timeout=120) as resp:
+              data = resp.read()
+
+          print("Downloaded bytes:", len(data))
+
+          zf = zipfile.ZipFile(io.BytesIO(data))
+          names = zf.namelist()
+
+          print("Files in ZIP:")
+          for name in names:
+              print(" -", name)
+
+          xml_names = [n for n in names if n.lower().endswith(".xml")]
+          if not xml_names:
+              raise SystemExit("XML file not found inside ZIP")
+
+          xml_name = xml_names[0]
+          print("Using XML:", xml_name)
+
+          with zf.open(xml_name) as f:
+              preview = f.read(300)
+              print("First 300 bytes of XML:")
+              print(preview[:300])
+
+          print("Trying to parse first 5 vulnerability-like records...")
+
+          count = 0
+          with zf.open(xml_name) as f:
+              context = ET.iterparse(f, events=("end",))
+              for event, elem in context:
+                  tag = elem.tag.lower()
+
+                  # Печатаем первые элементы, которые похожи на записи
+                  if any(x in tag for x in ["vul", "vulnerability", "item", "entry"]):
+                      count += 1
+                      print(f"\nRecord #{count}")
+                      print("tag:", elem.tag)
+
+                      children = list(elem)
+                      for child in children[:10]:
+                          text = (child.text or "").strip().replace("\n", " ")
+                          print(f"  {child.tag}: {text[:200]}")
+
+                      if count >= 5:
+                          break
+
+                      elem.clear()
+
+          print("\nDone. Parsed records:", count)
+          PY
