@@ -1,4 +1,4 @@
-name: Test BDU ZIP
+name: Test BDU direct GET
 
 on:
   workflow_dispatch:
@@ -9,83 +9,30 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-
-      - name: Show environment
-        run: |
-          echo "Runner:"
-          uname -a
-          echo
-          echo "Python:"
-          python3 --version
-          echo
-          echo "curl:"
-          curl --version
-          echo
-          echo "unzip:"
-          unzip -v | head -n 5
-
-      - name: Check headers
+      - name: Test GET with curl
         run: |
           set -euxo pipefail
-          curl -I -L --connect-timeout 20 --max-time 120 \
-            "https://bdu.fstec.ru/files/documents/vulxml.zip"
+          URL="https://bdu.fstec.ru/files/documents/vulxml.zip"
 
-      - name: Download ZIP
-        run: |
-          set -euxo pipefail
-          mkdir -p tmp
-          curl -L --retry 3 --retry-delay 5 \
-            --connect-timeout 20 --max-time 300 \
-            -o tmp/vulxml.zip \
-            "https://bdu.fstec.ru/files/documents/vulxml.zip"
+          curl -L -k \
+            -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36" \
+            -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8" \
+            -H "Accept-Language: ru-RU,ru;q=0.9" \
+            -H "Cache-Control: no-cache" \
+            -H "Pragma: no-cache" \
+            -H "Upgrade-Insecure-Requests: 1" \
+            --connect-timeout 20 \
+            --max-time 120 \
+            --range 0-1023 \
+            -D /tmp/bdu_headers.txt \
+            -o /tmp/bdu_part.bin \
+            "$URL"
 
-          ls -lh tmp/vulxml.zip
-          du -h tmp/vulxml.zip
+          echo "=== RESPONSE HEADERS ==="
+          cat /tmp/bdu_headers.txt
 
-      - name: List ZIP contents
-        run: |
-          set -euxo pipefail
-          unzip -l tmp/vulxml.zip | sed -n '1,80p'
+          echo "=== DOWNLOADED BYTES ==="
+          wc -c /tmp/bdu_part.bin || true
 
-      - name: Extract first XML name
-        run: |
-          set -euxo pipefail
-          python3 - <<'PY'
-          import zipfile
-
-          zf = zipfile.ZipFile("tmp/vulxml.zip")
-          names = zf.namelist()
-
-          print("FILES IN ZIP:")
-          for n in names:
-              print(" -", n)
-
-          xml_names = [n for n in names if n.lower().endswith(".xml")]
-          if not xml_names:
-              raise SystemExit("XML file not found inside ZIP")
-
-          xml_name = xml_names[0]
-          print("XML FOUND:", xml_name)
-
-          with open("tmp/xml_name.txt", "w", encoding="utf-8") as f:
-              f.write(xml_name)
-          PY
-
-      - name: Show XML first bytes
-        run: |
-          set -euxo pipefail
-          python3 - <<'PY'
-          import zipfile
-
-          with open("tmp/xml_name.txt", "r", encoding="utf-8") as f:
-              xml_name = f.read().strip()
-
-          zf = zipfile.ZipFile("tmp/vulxml.zip")
-          with zf.open(xml_name) as xmlf:
-              head = xmlf.read(500)
-
-          print("FIRST 500 BYTES:")
-          print(head)
-          PY
+          echo "=== FIRST BYTES (HEX) ==="
+          xxd -l 64 /tmp/bdu_part.bin || true
