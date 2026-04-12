@@ -6,74 +6,86 @@ on:
 jobs:
   test-bdu:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Download and inspect BDU ZIP
+      - name: Show environment
         run: |
-          python - <<'PY'
-          import io
+          echo "Runner:"
+          uname -a
+          echo
+          echo "Python:"
+          python3 --version
+          echo
+          echo "curl:"
+          curl --version
+          echo
+          echo "unzip:"
+          unzip -v | head -n 5
+
+      - name: Check headers
+        run: |
+          set -euxo pipefail
+          curl -I -L --connect-timeout 20 --max-time 120 \
+            "https://bdu.fstec.ru/files/documents/vulxml.zip"
+
+      - name: Download ZIP
+        run: |
+          set -euxo pipefail
+          mkdir -p tmp
+          curl -L --retry 3 --retry-delay 5 \
+            --connect-timeout 20 --max-time 300 \
+            -o tmp/vulxml.zip \
+            "https://bdu.fstec.ru/files/documents/vulxml.zip"
+
+          ls -lh tmp/vulxml.zip
+          du -h tmp/vulxml.zip
+
+      - name: List ZIP contents
+        run: |
+          set -euxo pipefail
+          unzip -l tmp/vulxml.zip | sed -n '1,80p'
+
+      - name: Extract first XML name
+        run: |
+          set -euxo pipefail
+          python3 - <<'PY'
           import zipfile
-          import urllib.request
-          import xml.etree.ElementTree as ET
 
-          URL = "https://bdu.fstec.ru/files/documents/vulxml.zip"
-
-          print("Downloading:", URL)
-          with urllib.request.urlopen(URL, timeout=120) as resp:
-              data = resp.read()
-
-          print("Downloaded bytes:", len(data))
-
-          zf = zipfile.ZipFile(io.BytesIO(data))
+          zf = zipfile.ZipFile("tmp/vulxml.zip")
           names = zf.namelist()
 
-          print("Files in ZIP:")
-          for name in names:
-              print(" -", name)
+          print("FILES IN ZIP:")
+          for n in names:
+              print(" -", n)
 
           xml_names = [n for n in names if n.lower().endswith(".xml")]
           if not xml_names:
               raise SystemExit("XML file not found inside ZIP")
 
           xml_name = xml_names[0]
-          print("Using XML:", xml_name)
+          print("XML FOUND:", xml_name)
 
-          with zf.open(xml_name) as f:
-              preview = f.read(300)
-              print("First 300 bytes of XML:")
-              print(preview[:300])
+          with open("tmp/xml_name.txt", "w", encoding="utf-8") as f:
+              f.write(xml_name)
+          PY
 
-          print("Trying to parse first 5 vulnerability-like records...")
+      - name: Show XML first bytes
+        run: |
+          set -euxo pipefail
+          python3 - <<'PY'
+          import zipfile
 
-          count = 0
-          with zf.open(xml_name) as f:
-              context = ET.iterparse(f, events=("end",))
-              for event, elem in context:
-                  tag = elem.tag.lower()
+          with open("tmp/xml_name.txt", "r", encoding="utf-8") as f:
+              xml_name = f.read().strip()
 
-                  # Печатаем первые элементы, которые похожи на записи
-                  if any(x in tag for x in ["vul", "vulnerability", "item", "entry"]):
-                      count += 1
-                      print(f"\nRecord #{count}")
-                      print("tag:", elem.tag)
+          zf = zipfile.ZipFile("tmp/vulxml.zip")
+          with zf.open(xml_name) as xmlf:
+              head = xmlf.read(500)
 
-                      children = list(elem)
-                      for child in children[:10]:
-                          text = (child.text or "").strip().replace("\n", " ")
-                          print(f"  {child.tag}: {text[:200]}")
-
-                      if count >= 5:
-                          break
-
-                      elem.clear()
-
-          print("\nDone. Parsed records:", count)
+          print("FIRST 500 BYTES:")
+          print(head)
           PY
