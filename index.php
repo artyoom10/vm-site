@@ -24,6 +24,12 @@ $initial = $user['initial'];
 function e(string $s): string {
   return htmlspecialchars($s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 }
+
+function asset_url(string $path): string {
+  $full = __DIR__ . '/' . ltrim($path, '/');
+  $v = is_file($full) ? (string)filemtime($full) : (string)time();
+  return $path . '?v=' . rawurlencode($v);
+}
 ?>
 <!DOCTYPE html>
 <html lang="ru" data-color-scheme="dark">
@@ -32,7 +38,7 @@ function e(string $s): string {
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>VM RGU</title>
 
-  <link rel="stylesheet" href="css/app.css" />
+  <link rel="stylesheet" href="<?= e(asset_url('css/app.css')) ?>" />
 
   <!-- Доп. токены навбара / попапа (фон страницы — в theme-dark-shell.css) -->
   <style>
@@ -206,17 +212,17 @@ function e(string $s): string {
   </div>
 
   <!-- Core scripts -->
-  <script src="js/utils.js"></script>
-  <script src="js/data-loader.js"></script>
-  <script src="js/router.js"></script>
+  <script src="<?= e(asset_url('js/utils.js')) ?>"></script>
+  <script src="<?= e(asset_url('js/data-loader.js')) ?>"></script>
+  <script src="<?= e(asset_url('js/router.js')) ?>"></script>
 
   <!-- Pages -->
-  <script src="js/pages/dashboard.js"></script>
-  <script src="js/pages/assets.js"></script>
-  <script src="js/pages/findings.js"></script>
-  <script src="js/pages/scans.js"></script>
-  <script src="js/pages/reports.js"></script>
-  <script src="js/pages/settings.js"></script>
+  <script src="<?= e(asset_url('js/pages/dashboard.js')) ?>"></script>
+  <script src="<?= e(asset_url('js/pages/assets.js')) ?>"></script>
+  <script src="<?= e(asset_url('js/pages/findings.js')) ?>"></script>
+  <script src="<?= e(asset_url('js/pages/scans.js')) ?>"></script>
+  <script src="<?= e(asset_url('js/pages/reports.js')) ?>"></script>
+  <script src="<?= e(asset_url('js/pages/settings.js')) ?>"></script>
 
   <script>
     function closeUserMenu() {

@@ -6,6 +6,12 @@ require_once __DIR__ . '/includes/bootstrap.php';
 
 vm_send_html_security_headers();
 
+function asset_url(string $path): string {
+  $full = __DIR__ . '/' . ltrim($path, '/');
+  $v = is_file($full) ? (string)filemtime($full) : (string)time();
+  return $path . '?v=' . rawurlencode($v);
+}
+
 function setAuthCookie(string $name, string $value): void {
   vm_set_auth_cookie($name, $value);
 }
@@ -95,7 +101,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>VM RGU — Вход</title>
 
-  <link rel="stylesheet" href="css/app.css" />
+  <link rel="stylesheet" href="<?php echo htmlspecialchars(asset_url('css/app.css'), ENT_QUOTES, 'UTF-8'); ?>" />
 
   <style>
     body{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px;}
