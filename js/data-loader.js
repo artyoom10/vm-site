@@ -12,6 +12,7 @@
     raw: null,
     normalized: null,
     formatted: null,
+    currentData: null,
     sourceFlags: { json: true, xml: false },
     uploadedRaw: null,
     uploadedFormatted: null,
@@ -411,7 +412,7 @@
 
   async function loadDataset(forceReload = false) {
     if (!forceReload && STORE.loaded && STORE.formatted) {
-      api.data = getCurrentFormattedData();
+      STORE.currentData = getCurrentFormattedData();
       return true;
     }
 
@@ -422,7 +423,7 @@
     STORE.raw = raw;
     STORE.formatted = formatted;
 
-    api.data = getCurrentFormattedData();
+    STORE.currentData = getCurrentFormattedData();
     return true;
   }
 
@@ -493,7 +494,7 @@
 
   async function loadApplicationData(forceReload = false) {
     await loadDataset(forceReload);
-    return api.data;
+    return STORE.currentData;
   }
 
   function getSourceState() {
@@ -528,7 +529,7 @@
     if (!STORE.sourceFlags.json && !STORE.sourceFlags.xml) {
       STORE.sourceFlags.json = true;
     }
-    api.data = getCurrentFormattedData() || null;
+    STORE.currentData = getCurrentFormattedData() || null;
     return getSourceState();
   }
 
@@ -559,13 +560,18 @@
       scanStart: raw._meta?.scan_start || raw.generated_at || null,
     };
     STORE.sourceFlags.xml = true;
-    api.data = getCurrentFormattedData() || formatted;
+    STORE.currentData = getCurrentFormattedData() || formatted;
     return { ok: true, state: getSourceState(), meta: STORE.uploadedMeta };
   }
 
   const api = {
     CONFIG,
-    data: null,
+    get data() {
+      return STORE.currentData;
+    },
+    set data(v) {
+      STORE.currentData = v;
+    },
 
     loadDataset,
     loadApplicationData,
