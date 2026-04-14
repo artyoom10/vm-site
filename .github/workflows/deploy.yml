@@ -28,9 +28,13 @@ jobs:
         uses: SamKirkland/FTP-Deploy-Action@v4.3.6
         with:
           server: ${{ secrets.FTP_SERVER }}
+          protocol: ftp
+          port: 21
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
-          server-dir: ${{ secrets.FTP_SERVER_DIR }}
+          local-dir: ./
+          server-dir: /htdocs/
+          dangerous-clean-slate: true
           exclude: |
             **/.git*
             **/.git*/**
