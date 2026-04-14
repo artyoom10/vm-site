@@ -12,6 +12,10 @@
     raw: null,
     normalized: null,
     formatted: null,
+    mode: "json",
+    uploadedRaw: null,
+    uploadedFormatted: null,
+    uploadedMeta: null,
   };
 
   function safeStr(v) {
@@ -21,6 +25,41 @@
   function toNumber(v, fallback = 0) {
     const n = Number(v);
     return Number.isFinite(n) ? n : fallback;
+  }
+
+  function parseXml(text) {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(text, "application/xml");
+    const err = doc.querySelector("parsererror");
+    if (err) {
+      throw new Error("Некорректный XML-файл");
+    }
+    return doc;
+  }
+
+  function textOf(el, sel) {
+    if (!el) return "";
+    const n = sel ? el.querySelector(sel) : el;
+    return n ? safeStr(n.textContent).trim() : "";
+  }
+
+  function directText(el) {
+    if (!el) return "";
+    let out = "";
+    el.childNodes.forEach((n) => {
+      if (n.nodeType === Node.TEXT_NODE) out += n.nodeValue || "";
+    });
+    return safeStr(out).trim();
+  }
+
+  function parsePortDetails(portText) {
+    const port = safeStr(portText).trim();
+    if (!port) return { port: "", port_num: null, proto: "" };
+    const m = port.match(/^(\d+)\/(.+)$/);
+    if (m) {
+      return { port, port_num: Number(m[1]), proto: safeStr(m[2]).trim().toLowerCase() };
+    }
+    return { port, port_num: null, proto: "" };
   }
 
   /**
@@ -207,12 +246,127 @@
       assets,
       findings,
       scans,
-      metadata: { generated_at: raw.generated_at || null, source: raw.source || "dataset" },
+      metadata: {
+        generated_at: raw.generated_at || null,
+        source: raw.source || "dataset",
+        source_label: raw.source_label || "",
+      },
     };
   }
 
+  function parseOpenVasXmlReport(xmlText, fileName = "report.xml") {
+    const doc = parseXml(xmlText);
+    const reportNode =
+      doc.querySelector("report > report") ||
+      doc.querySelector("report report") ||
+      doc.querySelector("report");
+
+    if (!reportNode) {
+      throw new Error("В XML не найден блок report");
+    }
+
+    const reportId = reportNode.getAttribute("id") || "";
+    const generatedAt =
+      textOf(reportNode, "timestamp") ||
+      textOf(reportNode, "scan_start") ||
+      textOf(reportNode, "scan_end") ||
+      textOf(doc, "creation_time") ||
+      new Date().toISOString();
+    const taskName = textOf(reportNode, "task > name") || fileName;
+
+    const resultNodes = Array.from(reportNode.querySelectorAll("results > result"));
+    const assetsMap = new Map();
+    const findings = resultNodes.map((r, idx) => {
+      const hostEl = r.querySelector("host");
+      const ip = directText(hostEl);
+      const hostname = textOf(hostEl, "hostname");
+      const assetId = safeStr(hostEl?.querySelector("asset")?.getAttribute("asset_id") || "").trim();
+      const dedupKey = assetId || ip || hostname || `asset-${idx}`;
+      const name = hostname || ip || dedupKey;
+
+      if (!assetsMap.has(dedupKey)) {
+        assetsMap.set(dedupKey, {
+          asset_id: dedupKey,
+          id: dedupKey,
+          ip,
+          ip_address: ip,
+          hostname: hostname || name,
+          name,
+          asset_type: "host",
+          status: "active",
+          criticality: null,
+          network_zone: "",
+          owner_team: "",
+        });
+      }
+
+      const nvt = r.querySelector("nvt");
+      const portInfo = parsePortDetails(textOf(r, "port"));
+      const cvssBase = toNumber(textOf(nvt, "cvss_base") || textOf(r, "severity") || 0, 0);
+      const threat = textOf(r, "threat") || mapThreatToSeverity("", cvssBase);
+      const cves = Array.from(r.querySelectorAll("refs > ref[type='cve']"))
+        .map((n) => safeStr(n.getAttribute("id")).trim())
+        .filter(Boolean);
+
+      return {
+        finding_id: r.getAttribute("id") || `${dedupKey}-${safeStr(textOf(nvt, "oid") || idx)}`,
+        asset_id: dedupKey,
+        ip,
+        hostname: hostname || name,
+        plugin_name: textOf(r, "name") || textOf(nvt, "name"),
+        name: textOf(r, "name") || textOf(nvt, "name"),
+        family: textOf(nvt, "family"),
+        nvt_oid: safeStr(nvt?.getAttribute("oid") || "").trim(),
+        cvss_base: cvssBase,
+        threat,
+        status: "open",
+        detected_at: textOf(r, "modification_time") || textOf(r, "creation_time") || generatedAt,
+        port: portInfo.port,
+        port_num: portInfo.port_num,
+        proto: portInfo.proto,
+        description: textOf(r, "description"),
+        solution: textOf(nvt, "solution"),
+        cve: cves.join(","),
+      };
+    });
+
+    const assets = Array.from(assetsMap.values());
+    const scans = [
+      {
+        id: reportId || `xml-${Date.now()}`,
+        name: taskName,
+        status: textOf(reportNode, "scan_run_status") || "Done",
+        started_at: textOf(reportNode, "scan_start") || generatedAt,
+        generated_at: generatedAt,
+        hosts_count: toNumber(textOf(reportNode, "hosts > count"), assets.length),
+        vulns_count: toNumber(textOf(reportNode, "vulns > count"), findings.length),
+      },
+    ];
+
+    return {
+      generated_at: generatedAt,
+      source: "xml",
+      source_label: fileName,
+      assets,
+      findings,
+      scans,
+    };
+  }
+
+  function getCurrentFormattedData() {
+    if (STORE.mode === "xml" && STORE.uploadedFormatted) return STORE.uploadedFormatted;
+    return STORE.formatted;
+  }
+
   async function loadDataset(forceReload = false) {
-    if (!forceReload && STORE.loaded && STORE.formatted) return true;
+    if (STORE.mode === "xml" && STORE.uploadedFormatted) {
+      api.data = STORE.uploadedFormatted;
+      return true;
+    }
+    if (!forceReload && STORE.loaded && STORE.formatted) {
+      api.data = STORE.formatted;
+      return true;
+    }
 
     const raw = await fetchDatasetJson();
     const formatted = normalizeDataset(raw);
@@ -226,13 +380,13 @@
   }
 
   function _assets() {
-    return STORE.formatted?.assets || [];
+    return getCurrentFormattedData()?.assets || [];
   }
   function _findings() {
-    return STORE.formatted?.findings || [];
+    return getCurrentFormattedData()?.findings || [];
   }
   function _scans() {
-    return STORE.formatted?.scans || [];
+    return getCurrentFormattedData()?.scans || [];
   }
 
   function _wrapData(arr, opts) {
@@ -295,12 +449,53 @@
     return api.data;
   }
 
+  function getSourceState() {
+    return {
+      mode: STORE.mode,
+      hasXml: Boolean(STORE.uploadedFormatted),
+      label:
+        STORE.mode === "xml"
+          ? STORE.uploadedMeta?.fileName || "XML отчёт"
+          : "dataset.json",
+    };
+  }
+
+  function setSourceMode(mode) {
+    const m = safeStr(mode).toLowerCase() === "xml" ? "xml" : "json";
+    if (m === "xml" && !STORE.uploadedFormatted) {
+      throw new Error("Сначала загрузите XML-отчёт");
+    }
+    STORE.mode = m;
+    api.data = getCurrentFormattedData() || null;
+    return getSourceState();
+  }
+
+  async function loadXmlReportText(xmlText, fileName = "report.xml") {
+    const raw = parseOpenVasXmlReport(xmlText, fileName);
+    const formatted = normalizeDataset(raw);
+
+    STORE.uploadedRaw = raw;
+    STORE.uploadedFormatted = formatted;
+    STORE.uploadedMeta = {
+      fileName,
+      loadedAt: new Date().toISOString(),
+      findings: formatted.findings.length,
+      assets: formatted.assets.length,
+    };
+    STORE.mode = "xml";
+    api.data = formatted;
+    return { ok: true, state: getSourceState(), meta: STORE.uploadedMeta };
+  }
+
   const api = {
     CONFIG,
     data: null,
 
     loadDataset,
     loadApplicationData,
+    loadXmlReportText,
+    setSourceMode,
+    getSourceState,
 
     getAssets,
     getFindings,

@@ -507,10 +507,15 @@
 
       const metaEl = document.getElementById("dashboardMeta");
       const genAt = data.metadata?.generated_at || data.metadata?.generatedAt;
+      const src = safeStr(data.metadata?.source || "dataset");
+      const srcLabel = safeStr(data.metadata?.source_label || "");
       if (metaEl) {
-        metaEl.textContent = genAt
-          ? `Снимок данных: ${safeStr(genAt)}`
-          : "Используйте разделы «Уязвимости» и «Отчёты» для детализации по отделам.";
+        if (genAt) {
+          const suffix = src === "xml" ? ` · XML: ${srcLabel || "report.xml"}` : " · JSON датасет";
+          metaEl.textContent = `Снимок данных: ${safeStr(genAt)}${suffix}`;
+        } else {
+          metaEl.textContent = "Используйте разделы «Уязвимости» и «Отчёты» для детализации по отделам.";
+        }
       }
 
       window.vmTooltip?.ensure();
