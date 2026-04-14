@@ -25,6 +25,27 @@
     return v ? "checked" : "";
   }
 
+  function renderSwitch(id, checked, disabled = false) {
+    return `
+      <label style="display:inline-flex;align-items:center;gap:8px;cursor:${disabled ? "not-allowed" : "pointer"};">
+        <span style="font-size:12px;color:var(--color-text-secondary);">Использовать</span>
+        <span style="position:relative;display:inline-block;width:44px;height:24px;">
+          <input type="checkbox" id="${id}" ${onOff(checked)} ${disabled ? "disabled" : ""} style="opacity:0;width:0;height:0;" />
+          <span style="
+            position:absolute;inset:0;border-radius:999px;
+            background:${checked ? "rgba(45,212,191,.45)" : "rgba(255,255,255,.18)"};
+            border:1px solid ${checked ? "rgba(45,212,191,.75)" : "rgba(255,255,255,.2)"};
+            transition:all .18s ease;
+          "></span>
+          <span style="
+            position:absolute;top:2px;left:${checked ? "22px" : "2px"};width:18px;height:18px;border-radius:50%;
+            background:${checked ? "#2dd4bf" : "#c8d0dd"};box-shadow:0 1px 8px rgba(0,0,0,.35);transition:all .18s ease;
+          "></span>
+        </span>
+      </label>
+    `;
+  }
+
   function renderJsonCard(state) {
     const m = state?.jsonMeta || {};
     return `
@@ -32,10 +53,7 @@
         <div class="card-body vm-placeholder" style="padding:16px;">
           <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;">
             <p class="vm-placeholder__lead" style="margin:0;">JSON датасет</p>
-            <label style="display:inline-flex;align-items:center;gap:8px;">
-              <span style="font-size:12px;color:var(--color-text-secondary);">Использовать</span>
-              <input type="checkbox" id="scanSourceJsonToggle" ${onOff(state?.enabled?.json !== false)} />
-            </label>
+            ${renderSwitch("scanSourceJsonToggle", state?.enabled?.json !== false, false)}
           </div>
           <div class="vm-placeholder__hint" style="margin-top:8px;">Источник: <code>/api/dataset.php</code></div>
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;margin-top:10px;">
@@ -57,16 +75,7 @@
         <div class="card-body vm-placeholder" style="padding:16px;">
           <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;">
             <p class="vm-placeholder__lead" style="margin:0;">XML отчёт</p>
-            <div style="display:flex;align-items:center;gap:8px;">
-              <label style="display:inline-flex;align-items:center;gap:8px;">
-                <span style="font-size:12px;color:var(--color-text-secondary);">Использовать</span>
-                <input type="checkbox" id="scanSourceXmlToggle" ${onOff(state?.enabled?.xml)} ${
-                  hasXml ? "" : "disabled"
-                } />
-              </label>
-              <button type="button" class="btn btn--secondary" id="scanUploadXmlBtn">+ Загрузить отчёт XML</button>
-              <input type="file" id="scanUploadXmlInput" accept=".xml,text/xml,application/xml" style="display:none;" />
-            </div>
+            ${renderSwitch("scanSourceXmlToggle", state?.enabled?.xml, !hasXml)}
           </div>
           ${
             hasXml
@@ -82,10 +91,14 @@
                 m.loadedAt || "—"
               )}</div></div>
             </div>
-            <div class="vm-placeholder__hint" style="margin-top:8px;">
-              Задача: ${esc(m.taskName || "—")} · Старт: ${esc(m.scanStart || "—")} · Снимок: ${esc(
+            <div style="margin-top:10px;padding:10px 12px;border-radius:10px;background:rgba(45,212,191,.08);border:1px solid rgba(45,212,191,.25);">
+              <div style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:rgba(180,195,210,.85);margin-bottom:4px;">Задача сканирования</div>
+              <div style="font-size:1rem;font-weight:800;color:rgba(235,245,250,.95);margin-bottom:4px;">${esc(
+                m.taskName || "—"
+              )}</div>
+              <div class="vm-placeholder__hint">Старт: ${esc(m.scanStart || "—")} · Снимок: ${esc(
                   m.generatedAt || "—"
-                )}
+                )}</div>
             </div>`
               : `<div class="vm-placeholder__hint" style="margin-top:8px;">XML ещё не загружен.</div>`
           }
@@ -106,6 +119,10 @@
                 Выберите источники для вкладок «Дашборд», «Активы», «Уязвимости».
                 Загруженный XML хранится только в памяти текущей сессии браузера.
               </p>
+              <div style="margin-top:10px;">
+                <button type="button" class="btn btn--secondary" id="scanUploadXmlBtn">+ Загрузить отчёт XML</button>
+                <input type="file" id="scanUploadXmlInput" accept=".xml,text/xml,application/xml" style="display:none;" />
+              </div>
               <div class="vm-placeholder__hint" id="scanSourceMeta" style="margin-top:10px;">
                 ${renderSourceMeta()}
               </div>
@@ -131,6 +148,8 @@
     async init() {
       const sourceMeta = document.getElementById("scanSourceMeta");
       const cardsWrap = document.getElementById("scanSourceCards");
+      const uploadBtn = document.getElementById("scanUploadXmlBtn");
+      const uploadInput = document.getElementById("scanUploadXmlInput");
 
       function refreshSourceUi() {
         const state = dataLoader.getSourceState
@@ -153,8 +172,6 @@
       function wireCardEvents() {
         const jsonToggle = document.getElementById("scanSourceJsonToggle");
         const xmlToggle = document.getElementById("scanSourceXmlToggle");
-        const uploadBtn = document.getElementById("scanUploadXmlBtn");
-        const uploadInput = document.getElementById("scanUploadXmlInput");
 
         jsonToggle?.addEventListener("change", () => {
           try {
@@ -178,25 +195,26 @@
           }
         });
 
-        uploadBtn?.addEventListener("click", () => uploadInput?.click());
-        uploadInput.addEventListener("change", async () => {
-          const file = uploadInput.files && uploadInput.files[0];
-          if (!file) return;
-          try {
-            const text = await file.text();
-            const out = await dataLoader.loadXmlReportText(text, file.name);
-            refreshSourceUi();
-            window.utils?.showNotification?.(
-              `XML загружен: активов ${out.meta.assets}, уязвимостей ${out.meta.findings}`,
-              "success"
-            );
-          } catch (e) {
-            window.utils?.showNotification?.(`Ошибка XML: ${String(e.message || e)}`, "error");
-          } finally {
-            uploadInput.value = "";
-          }
-        });
       }
+
+      uploadBtn?.addEventListener("click", () => uploadInput?.click());
+      uploadInput?.addEventListener("change", async () => {
+        const file = uploadInput.files && uploadInput.files[0];
+        if (!file) return;
+        try {
+          const text = await file.text();
+          const out = await dataLoader.loadXmlReportText(text, file.name);
+          refreshSourceUi();
+          window.utils?.showNotification?.(
+            `XML загружен: активов ${out.meta.assets}, уязвимостей ${out.meta.findings}`,
+            "success"
+          );
+        } catch (e) {
+          window.utils?.showNotification?.(`Ошибка XML: ${String(e.message || e)}`, "error");
+        } finally {
+          uploadInput.value = "";
+        }
+      });
 
       await dataLoader.loadDataset();
       refreshSourceUi();
