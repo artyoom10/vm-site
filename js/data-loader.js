@@ -589,4 +589,6 @@
   };
 
   window.dataLoader = api;
+  // Backward compatibility: some legacy code may reference global `api`.
+  window.api = api;
 })();
