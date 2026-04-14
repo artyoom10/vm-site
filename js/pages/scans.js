@@ -37,7 +37,7 @@
               <input type="checkbox" id="scanSourceJsonToggle" ${onOff(state?.enabled?.json !== false)} />
             </label>
           </div>
-          <div class="vm-placeholder__hint" style="margin-top:8px;">Источник: `/api/dataset.php`</div>
+          <div class="vm-placeholder__hint" style="margin-top:8px;">Источник: <code>/api/dataset.php</code></div>
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;margin-top:10px;">
             <div class="asset-modal__stat"><div class="asset-modal__stat-label">Активы</div><div class="asset-modal__stat-value">${Number(m.assets || 0)}</div></div>
             <div class="asset-modal__stat"><div class="asset-modal__stat-label">Уязвимости</div><div class="asset-modal__stat-value">${Number(m.findings || 0)}</div></div>
