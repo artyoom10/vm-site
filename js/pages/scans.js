@@ -16,8 +16,82 @@
   function renderSourceMeta() {
     const state = window.dataLoader?.getSourceState ? dataLoader.getSourceState() : null;
     if (!state) return "Источник: dataset.json";
+    if (state.mode === "mixed") return `Источник: JSON + XML (${esc(state.label || "report.xml")})`;
     if (state.mode === "xml") return `Источник: XML (${esc(state.label || "report.xml")})`;
     return "Источник: dataset.json";
+  }
+
+  function onOff(v) {
+    return v ? "checked" : "";
+  }
+
+  function renderJsonCard(state) {
+    const m = state?.jsonMeta || {};
+    return `
+      <div class="card" style="margin-top:14px;">
+        <div class="card-body vm-placeholder" style="padding:16px;">
+          <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;">
+            <p class="vm-placeholder__lead" style="margin:0;">JSON датасет</p>
+            <label style="display:inline-flex;align-items:center;gap:8px;">
+              <span style="font-size:12px;color:var(--color-text-secondary);">Использовать</span>
+              <input type="checkbox" id="scanSourceJsonToggle" ${onOff(state?.enabled?.json !== false)} />
+            </label>
+          </div>
+          <div class="vm-placeholder__hint" style="margin-top:8px;">Источник: `/api/dataset.php`</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;margin-top:10px;">
+            <div class="asset-modal__stat"><div class="asset-modal__stat-label">Активы</div><div class="asset-modal__stat-value">${Number(m.assets || 0)}</div></div>
+            <div class="asset-modal__stat"><div class="asset-modal__stat-label">Уязвимости</div><div class="asset-modal__stat-value">${Number(m.findings || 0)}</div></div>
+            <div class="asset-modal__stat"><div class="asset-modal__stat-label">Записи сканов</div><div class="asset-modal__stat-value">${Number(m.scans || 0)}</div></div>
+          </div>
+          <div class="vm-placeholder__hint" style="margin-top:8px;">Снимок: ${esc(m.generatedAt || "—")}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderXmlCard(state) {
+    const hasXml = Boolean(state?.hasXml);
+    const m = state?.xmlMeta || {};
+    return `
+      <div class="card" style="margin-top:14px;">
+        <div class="card-body vm-placeholder" style="padding:16px;">
+          <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;">
+            <p class="vm-placeholder__lead" style="margin:0;">XML отчёт</p>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <label style="display:inline-flex;align-items:center;gap:8px;">
+                <span style="font-size:12px;color:var(--color-text-secondary);">Использовать</span>
+                <input type="checkbox" id="scanSourceXmlToggle" ${onOff(state?.enabled?.xml)} ${
+                  hasXml ? "" : "disabled"
+                } />
+              </label>
+              <button type="button" class="btn btn--secondary" id="scanUploadXmlBtn">+ Загрузить отчёт XML</button>
+              <input type="file" id="scanUploadXmlInput" accept=".xml,text/xml,application/xml" style="display:none;" />
+            </div>
+          </div>
+          ${
+            hasXml
+              ? `
+            <div class="vm-placeholder__hint" style="margin-top:8px;">Файл: ${esc(m.fileName || "report.xml")}</div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;margin-top:10px;">
+              <div class="asset-modal__stat"><div class="asset-modal__stat-label">Сканер</div><div class="asset-modal__stat-value" style="font-size:.95rem;">${esc(m.scanner || "—")}</div></div>
+              <div class="asset-modal__stat"><div class="asset-modal__stat-label">Формат</div><div class="asset-modal__stat-value" style="font-size:.95rem;">${esc(m.reportFormat || "XML")}</div></div>
+              <div class="asset-modal__stat"><div class="asset-modal__stat-label">Статус</div><div class="asset-modal__stat-value">${esc(m.scanStatus || "—")}</div></div>
+              <div class="asset-modal__stat"><div class="asset-modal__stat-label">Активы</div><div class="asset-modal__stat-value">${Number(m.assets || 0)}</div></div>
+              <div class="asset-modal__stat"><div class="asset-modal__stat-label">Уязвимости</div><div class="asset-modal__stat-value">${Number(m.findings || 0)}</div></div>
+              <div class="asset-modal__stat"><div class="asset-modal__stat-label">Загружен</div><div class="asset-modal__stat-value" style="font-size:.85rem;">${esc(
+                m.loadedAt || "—"
+              )}</div></div>
+            </div>
+            <div class="vm-placeholder__hint" style="margin-top:8px;">
+              Задача: ${esc(m.taskName || "—")} · Старт: ${esc(m.scanStart || "—")} · Снимок: ${esc(
+                  m.generatedAt || "—"
+                )}
+            </div>`
+              : `<div class="vm-placeholder__hint" style="margin-top:8px;">XML ещё не загружен.</div>`
+          }
+        </div>
+      </div>
+    `;
   }
 
   window.pages.scans = {
@@ -29,29 +103,13 @@
             <div class="card-body vm-placeholder">
               <p class="vm-placeholder__lead">Источник данных для аналитики</p>
               <p class="vm-placeholder__text">
-                Выберите, откуда брать данные для вкладок «Дашборд», «Активы», «Уязвимости».
+                Выберите источники для вкладок «Дашборд», «Активы», «Уязвимости».
                 Загруженный XML хранится только в памяти текущей сессии браузера.
               </p>
-              <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:10px;">
-                <label style="display:inline-flex;gap:8px;align-items:center;">
-                  <input type="radio" name="scanDataSource" value="json" />
-                  <span>JSON датасет</span>
-                </label>
-                <label style="display:inline-flex;gap:8px;align-items:center;">
-                  <input type="radio" name="scanDataSource" value="xml" />
-                  <span>Загруженный XML</span>
-                </label>
-                <button type="button" class="btn btn--secondary" id="scanUploadXmlBtn">+ Загрузить отчёт XML</button>
-                <input type="file" id="scanUploadXmlInput" accept=".xml,text/xml,application/xml" style="display:none;" />
-              </div>
               <div class="vm-placeholder__hint" id="scanSourceMeta" style="margin-top:10px;">
                 ${renderSourceMeta()}
               </div>
-              <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;">
-                <button class="btn btn--secondary" type="button" id="goDashboardBtn">Открыть Дашборд</button>
-                <button class="btn btn--secondary" type="button" id="goAssetsBtn">Открыть Активы</button>
-                <button class="btn btn--secondary" type="button" id="goFindingsBtn">Открыть Уязвимости</button>
-              </div>
+              <div id="scanSourceCards"></div>
             </div>
           </div>
           <div class="card" style="margin-top:20px;">
@@ -71,41 +129,56 @@
       `;
     },
     async init() {
-      const sourceInputs = Array.from(document.querySelectorAll('input[name="scanDataSource"]'));
-      const uploadBtn = document.getElementById("scanUploadXmlBtn");
-      const uploadInput = document.getElementById("scanUploadXmlInput");
       const sourceMeta = document.getElementById("scanSourceMeta");
+      const cardsWrap = document.getElementById("scanSourceCards");
 
       function refreshSourceUi() {
-        const state = dataLoader.getSourceState ? dataLoader.getSourceState() : { mode: "json", hasXml: false };
-        sourceInputs.forEach((el) => {
-          el.checked = el.value === state.mode;
-          if (el.value === "xml") el.disabled = !state.hasXml;
-        });
+        const state = dataLoader.getSourceState
+          ? dataLoader.getSourceState()
+          : { mode: "json", enabled: { json: true, xml: false }, hasXml: false };
         if (sourceMeta) {
           sourceMeta.textContent =
-            state.mode === "xml"
+            state.mode === "mixed"
+              ? `Источник: JSON + XML (${state.label || "report.xml"})`
+              : state.mode === "xml"
               ? `Источник: XML (${state.label || "report.xml"})`
               : "Источник: dataset.json";
         }
+        if (cardsWrap) {
+          cardsWrap.innerHTML = `${renderJsonCard(state)}${renderXmlCard(state)}`;
+          wireCardEvents();
+        }
       }
 
-      sourceInputs.forEach((el) => {
-        el.addEventListener("change", () => {
-          if (!el.checked) return;
+      function wireCardEvents() {
+        const jsonToggle = document.getElementById("scanSourceJsonToggle");
+        const xmlToggle = document.getElementById("scanSourceXmlToggle");
+        const uploadBtn = document.getElementById("scanUploadXmlBtn");
+        const uploadInput = document.getElementById("scanUploadXmlInput");
+
+        jsonToggle?.addEventListener("change", () => {
           try {
-            dataLoader.setSourceMode(el.value);
+            dataLoader.setSourceEnabled("json", Boolean(jsonToggle.checked));
             refreshSourceUi();
-            window.utils?.showNotification?.("Источник данных переключён", "success");
+            window.utils?.showNotification?.("Источник данных обновлён", "success");
           } catch (e) {
             window.utils?.showNotification?.(String(e.message || e), "error");
             refreshSourceUi();
           }
         });
-      });
 
-      if (uploadBtn && uploadInput) {
-        uploadBtn.addEventListener("click", () => uploadInput.click());
+        xmlToggle?.addEventListener("change", () => {
+          try {
+            dataLoader.setSourceEnabled("xml", Boolean(xmlToggle.checked));
+            refreshSourceUi();
+            window.utils?.showNotification?.("Источник данных обновлён", "success");
+          } catch (e) {
+            window.utils?.showNotification?.(String(e.message || e), "error");
+            refreshSourceUi();
+          }
+        });
+
+        uploadBtn?.addEventListener("click", () => uploadInput?.click());
         uploadInput.addEventListener("change", async () => {
           const file = uploadInput.files && uploadInput.files[0];
           if (!file) return;
@@ -125,10 +198,7 @@
         });
       }
 
-      document.getElementById("goDashboardBtn")?.addEventListener("click", () => window.router?.navigate("dashboard"));
-      document.getElementById("goAssetsBtn")?.addEventListener("click", () => window.router?.navigate("assets"));
-      document.getElementById("goFindingsBtn")?.addEventListener("click", () => window.router?.navigate("findings"));
-
+      await dataLoader.loadDataset();
       refreshSourceUi();
     },
   };

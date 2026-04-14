@@ -511,7 +511,12 @@
       const srcLabel = safeStr(data.metadata?.source_label || "");
       if (metaEl) {
         if (genAt) {
-          const suffix = src === "xml" ? ` · XML: ${srcLabel || "report.xml"}` : " · JSON датасет";
+          const suffix =
+            src === "xml"
+              ? ` · XML: ${srcLabel || "report.xml"}`
+              : src === "mixed"
+                ? ` · JSON + XML${srcLabel ? `: ${srcLabel}` : ""}`
+                : " · JSON датасет";
           metaEl.textContent = `Снимок данных: ${safeStr(genAt)}${suffix}`;
         } else {
           metaEl.textContent = "Используйте разделы «Уязвимости» и «Отчёты» для детализации по отделам.";

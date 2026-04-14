@@ -12,7 +12,7 @@
     raw: null,
     normalized: null,
     formatted: null,
-    mode: "json",
+    sourceFlags: { json: true, xml: false },
     uploadedRaw: null,
     uploadedFormatted: null,
     uploadedMeta: null,
@@ -254,6 +254,42 @@
     };
   }
 
+  function mergeDatasets(parts) {
+    const datasets = (parts || []).filter(Boolean);
+    if (!datasets.length) {
+      return { assets: [], findings: [], scans: [], metadata: { generated_at: null, source: "empty" } };
+    }
+    if (datasets.length === 1) return datasets[0];
+
+    const assets = [];
+    const findings = [];
+    const scans = [];
+    let latest = "";
+    const labels = [];
+
+    datasets.forEach((d) => {
+      assets.push(...(Array.isArray(d.assets) ? d.assets : []));
+      findings.push(...(Array.isArray(d.findings) ? d.findings : []));
+      scans.push(...(Array.isArray(d.scans) ? d.scans : []));
+
+      const g = safeStr(d.metadata?.generated_at || "").trim();
+      if (g && (!latest || g > latest)) latest = g;
+      const l = safeStr(d.metadata?.source_label || "").trim();
+      if (l) labels.push(l);
+    });
+
+    return {
+      assets,
+      findings,
+      scans,
+      metadata: {
+        generated_at: latest || null,
+        source: "mixed",
+        source_label: labels.join(" + "),
+      },
+    };
+  }
+
   function parseOpenVasXmlReport(xmlText, fileName = "report.xml") {
     const doc = parseXml(xmlText);
     const reportNode =
@@ -266,6 +302,8 @@
     }
 
     const reportId = reportNode.getAttribute("id") || "";
+    const gmpVersion = textOf(reportNode, "gmp > version");
+    const reportFormat = textOf(reportNode, "report_format > name") || "XML";
     const generatedAt =
       textOf(reportNode, "timestamp") ||
       textOf(reportNode, "scan_start") ||
@@ -350,21 +388,30 @@
       assets,
       findings,
       scans,
+      _meta: {
+        report_id: reportId,
+        task_name: taskName,
+        scan_status: textOf(reportNode, "scan_run_status") || "Done",
+        scan_start: textOf(reportNode, "scan_start") || generatedAt,
+        report_format: reportFormat,
+        scanner: gmpVersion ? `OpenVAS/GMP ${gmpVersion}` : "OpenVAS XML",
+      },
     };
   }
 
   function getCurrentFormattedData() {
-    if (STORE.mode === "xml" && STORE.uploadedFormatted) return STORE.uploadedFormatted;
-    return STORE.formatted;
+    const includeJson = Boolean(STORE.sourceFlags.json);
+    const includeXml = Boolean(STORE.sourceFlags.xml && STORE.uploadedFormatted);
+
+    if (includeJson && includeXml) return mergeDatasets([STORE.formatted, STORE.uploadedFormatted]);
+    if (includeXml) return STORE.uploadedFormatted;
+    if (includeJson) return STORE.formatted;
+    return STORE.formatted || STORE.uploadedFormatted || null;
   }
 
   async function loadDataset(forceReload = false) {
-    if (STORE.mode === "xml" && STORE.uploadedFormatted) {
-      api.data = STORE.uploadedFormatted;
-      return true;
-    }
     if (!forceReload && STORE.loaded && STORE.formatted) {
-      api.data = STORE.formatted;
+      api.data = getCurrentFormattedData();
       return true;
     }
 
@@ -375,7 +422,7 @@
     STORE.raw = raw;
     STORE.formatted = formatted;
 
-    api.data = formatted;
+    api.data = getCurrentFormattedData();
     return true;
   }
 
@@ -451,23 +498,45 @@
 
   function getSourceState() {
     return {
-      mode: STORE.mode,
+      mode:
+        STORE.sourceFlags.json && STORE.sourceFlags.xml
+          ? "mixed"
+          : STORE.sourceFlags.xml
+            ? "xml"
+            : "json",
+      enabled: { ...STORE.sourceFlags },
       hasXml: Boolean(STORE.uploadedFormatted),
-      label:
-        STORE.mode === "xml"
-          ? STORE.uploadedMeta?.fileName || "XML отчёт"
-          : "dataset.json",
+      label: STORE.uploadedMeta?.fileName || "",
+      jsonMeta: STORE.formatted
+        ? {
+            generatedAt: STORE.formatted.metadata?.generated_at || null,
+            assets: (STORE.formatted.assets || []).length,
+            findings: (STORE.formatted.findings || []).length,
+            scans: (STORE.formatted.scans || []).length,
+          }
+        : null,
+      xmlMeta: STORE.uploadedMeta || null,
     };
+  }
+
+  function setSourceEnabled(source, enabled) {
+    const src = safeStr(source).toLowerCase() === "xml" ? "xml" : "json";
+    if (src === "xml" && enabled && !STORE.uploadedFormatted) {
+      throw new Error("Сначала загрузите XML-отчёт");
+    }
+    STORE.sourceFlags[src] = Boolean(enabled);
+    if (!STORE.sourceFlags.json && !STORE.sourceFlags.xml) {
+      STORE.sourceFlags.json = true;
+    }
+    api.data = getCurrentFormattedData() || null;
+    return getSourceState();
   }
 
   function setSourceMode(mode) {
     const m = safeStr(mode).toLowerCase() === "xml" ? "xml" : "json";
-    if (m === "xml" && !STORE.uploadedFormatted) {
-      throw new Error("Сначала загрузите XML-отчёт");
-    }
-    STORE.mode = m;
-    api.data = getCurrentFormattedData() || null;
-    return getSourceState();
+    STORE.sourceFlags.json = m === "json";
+    STORE.sourceFlags.xml = m === "xml";
+    return setSourceEnabled(m, true);
   }
 
   async function loadXmlReportText(xmlText, fileName = "report.xml") {
@@ -481,9 +550,16 @@
       loadedAt: new Date().toISOString(),
       findings: formatted.findings.length,
       assets: formatted.assets.length,
+      scans: formatted.scans.length,
+      generatedAt: raw.generated_at || null,
+      scanner: raw._meta?.scanner || "OpenVAS XML",
+      reportFormat: raw._meta?.report_format || "XML",
+      taskName: raw._meta?.task_name || fileName,
+      scanStatus: raw._meta?.scan_status || "Done",
+      scanStart: raw._meta?.scan_start || raw.generated_at || null,
     };
-    STORE.mode = "xml";
-    api.data = formatted;
+    STORE.sourceFlags.xml = true;
+    api.data = getCurrentFormattedData() || formatted;
     return { ok: true, state: getSourceState(), meta: STORE.uploadedMeta };
   }
 
@@ -494,6 +570,7 @@
     loadDataset,
     loadApplicationData,
     loadXmlReportText,
+    setSourceEnabled,
     setSourceMode,
     getSourceState,
 
