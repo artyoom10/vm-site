@@ -7,6 +7,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/includes/bootstrap.php';
 
 vm_send_html_security_headers();
+const BUILD_VERSION = '20260414-2';
 
 if (isset($_GET['force_logout'])) {
   vm_clear_auth_cookies_hard();
@@ -27,7 +28,7 @@ function e(string $s): string {
 
 function asset_url(string $path): string {
   $full = __DIR__ . '/' . ltrim($path, '/');
-  $v = is_file($full) ? (string)filemtime($full) : (string)time();
+  $v = BUILD_VERSION . '-' . (is_file($full) ? (string)filemtime($full) : (string)time());
   return $path . '?v=' . rawurlencode($v);
 }
 ?>
