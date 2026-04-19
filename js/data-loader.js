@@ -179,6 +179,40 @@
     return { byId, byIp, byHostname };
   }
 
+  /**
+   * Дата обнаружения (для расчёта срока устранения по п. 6.4).
+   * @returns {Date|null}
+   */
+  function parseFindingDetectedDate(f) {
+    const s = safeStr(
+      f.detected_at || f.detectedat || f.created_at || f.createdat || ""
+    ).trim();
+    if (!s) return null;
+    const d = new Date(s);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  /**
+   * Крайний срок устранения от даты обнаружения (рекомендуемые сроки п. 6.4):
+   * критический — 24 ч; высокий — 7 дн; средний — 4 нед; низкий и инфо — 4 мес.
+   * @returns {Date|null}
+   */
+  function computeRemediationDueDate(severity, detectedAt) {
+    if (!detectedAt) return null;
+    const sev = safeStr(severity).trim().toLowerCase();
+    const d = new Date(detectedAt.getTime());
+    if (sev === "critical") {
+      d.setTime(d.getTime() + 24 * 60 * 60 * 1000);
+    } else if (sev === "high") {
+      d.setDate(d.getDate() + 7);
+    } else if (sev === "medium") {
+      d.setDate(d.getDate() + 28);
+    } else {
+      d.setMonth(d.getMonth() + 4);
+    }
+    return d;
+  }
+
   function normalizeFindings(rawFindings = [], assetsIndex) {
     return rawFindings.map((f) => {
       const assetId = safeStr(f.asset_id);
@@ -195,6 +229,10 @@
         `${assetId || "asset"}-${safeStr(f.nvt_oid || "nvt")}-${safeStr(f.port_num || f.port || "port")}`;
 
       const st = normalizeFindingStatus(f.status);
+
+      const detectedAtDate = parseFindingDetectedDate(f);
+      const severityLc = mapThreatToSeverity(f.threat, f.cvss_base).toLowerCase();
+      const dueDate = computeRemediationDueDate(severityLc, detectedAtDate);
 
       const ownerTeam = safeStr(
         asset?.owner_team ||
@@ -221,7 +259,11 @@
         family: safeStr(f.family || ""),
         nvt_oid: safeStr(f.nvt_oid || ""),
 
-        severity: mapThreatToSeverity(f.threat, f.cvss_base).toLowerCase(),
+        severity: severityLc,
+
+        remediation_due_iso: dueDate ? dueDate.toISOString() : "",
+        remediation_due_ms: dueDate ? dueDate.getTime() : null,
+        remediation_detected_has_date: Boolean(detectedAtDate),
 
         status_raw: st.raw,
         status_key: st.key,
@@ -586,6 +628,8 @@
     getFindingsByAsset,
     getStats,
     normalizeFindingStatus,
+    parseFindingDetectedDate,
+    computeRemediationDueDate,
   };
 
   window.dataLoader = api;

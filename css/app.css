@@ -2982,6 +2982,7 @@ html[data-color-scheme="dark"] .findings-layout .card-body {
     "top cvss"
     "title title"
     "meta meta"
+    "deadline deadline"
     "badges badges";
   gap: 0.4rem 1rem;
   padding: 1.05rem 1.15rem 1.05rem 1.2rem;
@@ -3127,6 +3128,66 @@ html[data-color-scheme="dark"] .findings-layout .card-body {
   color: rgba(190, 245, 230, 0.85);
 }
 
+.findings-card__deadline {
+  grid-area: deadline;
+  font-size: 0.74rem;
+  font-weight: 700;
+  line-height: 1.35;
+  color: rgba(175, 195, 215, 0.92);
+  padding: 0.35rem 0.5rem;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.findings-card__deadline strong {
+  color: rgba(232, 240, 248, 0.96);
+  font-weight: 850;
+}
+
+.findings-card__deadline--warn {
+  border-color: rgba(255, 152, 0, 0.35);
+  background: rgba(255, 152, 0, 0.08);
+}
+
+.findings-card__deadline--over {
+  border-color: rgba(244, 67, 54, 0.45);
+  background: rgba(244, 67, 54, 0.1);
+  color: rgba(255, 200, 200, 0.92);
+}
+
+.findings-card--with-rem-controls {
+  grid-template-areas:
+    "top cvss"
+    "title title"
+    "meta meta"
+    "deadline deadline"
+    "remctl remctl"
+    "badges badges";
+}
+
+.findings-card__remctl {
+  grid-area: remctl;
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.15rem;
+}
+
+.findings-card__remctl label,
+.findings-card__remctl .form-label {
+  font-size: 0.68rem;
+  font-weight: 800;
+  color: rgba(175, 195, 215, 0.85);
+  margin-bottom: 0.15rem;
+  display: block;
+}
+
+.findings-card__remctl .form-control {
+  font-size: 0.78rem;
+  padding: 0.35rem 0.5rem;
+  max-width: 100%;
+}
+
 .findings-card__badges {
   grid-area: badges;
   display: flex;
@@ -3266,6 +3327,18 @@ html[data-color-scheme="dark"] .findings-layout .card-body {
       "cvss"
       "title"
       "meta"
+      "deadline"
+      "badges";
+  }
+
+  .findings-card--with-rem-controls {
+    grid-template-areas:
+      "top"
+      "cvss"
+      "title"
+      "meta"
+      "deadline"
+      "remctl"
       "badges";
   }
 

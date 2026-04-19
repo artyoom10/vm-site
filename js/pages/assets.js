@@ -266,6 +266,10 @@
         const metaHtml = metaTags.length
           ? `<div class="findings-card__meta">${metaTags.join("")}</div>`
           : "";
+        const deadlineHtml =
+          typeof window.vmRemediationDeadlineHtml === "function"
+            ? window.vmRemediationDeadlineHtml(f)
+            : "";
         return `
       <article class="findings-card findings-card--${sevClass} asset-modal-finding-card">
         <div class="findings-card__host">${escapeHtml(row.name)}</div>
@@ -275,6 +279,7 @@
         </div>
         <p class="findings-card__title">${escapeHtml(title)}</p>
         ${metaHtml}
+        ${deadlineHtml}
         <div class="findings-card__badges">
           <span class="findings-pill ${sevPill}">${escapeHtml(RU.risk[sk] || RU.risk.info)}</span>
           <span class="findings-pill ${stPill}">${escapeHtml(statusLabelFinding(f))}</span>

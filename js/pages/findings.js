@@ -84,6 +84,22 @@
       cve: "CVE",
       threat: "Threat",
       detected: "Обнаружено",
+      remediationDeadline: "Крайний срок устранения",
+      remediationNorm: "Норматив (п. 6.4)",
+      remediationAssignee: "Исполнитель (контроль)",
+      remediationCtlStatus: "Статус устранения",
+    },
+    remediation: {
+      normShort:
+        "Критический — до 24 ч; высокий — до 7 дн; средний — до 4 нед; низкий и инфо — до 4 мес. от даты обнаружения.",
+      normTitle: "6.4. Рекомендуемые сроки устранения уязвимостей",
+      normBody: `критический уровень опасности до 24 часов;
+высокий уровень опасности – до 7 дней;
+средний уровень опасности – до 4 недель;
+низкий уровень опасности – до 4 месяцев.`,
+      noDetected: "Дата обнаружения не задана — срок не вычислен",
+      overdue: "Просрочено",
+      dueSoon: "Скоро истекает",
     },
   };
 
@@ -199,6 +215,64 @@
   function getCvss(f) {
     const n = toNum(f.cvss_score ?? f.cvssbase ?? f.cvss_base ?? f.cvssBase ?? 0, 0);
     return n.toFixed(1);
+  }
+
+  function getRemediationDueMs(f) {
+    const n = f?.remediation_due_ms;
+    if (typeof n === "number" && Number.isFinite(n)) return n;
+    const iso = safeStr(f?.remediation_due_iso).trim();
+    if (!iso) return null;
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? null : d.getTime();
+  }
+
+  function formatRuDateTime(ms) {
+    if (ms === null || ms === undefined) return "—";
+    try {
+      return new Intl.DateTimeFormat("ru-RU", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(new Date(ms));
+    } catch (_) {
+      return "—";
+    }
+  }
+
+  function isFindingClosedForDeadline(f) {
+    const k = f.status_key || lower(f.status);
+    return k === "resolved" || k === "false_positive";
+  }
+
+  function remediationDeadlineVisualClass(f) {
+    const due = getRemediationDueMs(f);
+    if (due === null) return "";
+    if (isFindingClosedForDeadline(f)) return "";
+    const now = Date.now();
+    if (now > due) return "findings-card__deadline--over";
+    if (due - now < 72 * 60 * 60 * 1000) return "findings-card__deadline--warn";
+    return "";
+  }
+
+  function remediationDeadlineHtml(f) {
+    const due = getRemediationDueMs(f);
+    const vis = remediationDeadlineVisualClass(f);
+    if (due === null) {
+      return `<div class="findings-card__deadline ${vis}"><span>${escapeHtml(
+        RU.fields.remediationDeadline
+      )}: </span><strong>${escapeHtml(RU.remediation.noDetected)}</strong></div>`;
+    }
+    const extra =
+      vis === "findings-card__deadline--over"
+        ? ` · ${escapeHtml(RU.remediation.overdue)}`
+        : vis === "findings-card__deadline--warn"
+          ? ` · ${escapeHtml(RU.remediation.dueSoon)}`
+          : "";
+    return `<div class="findings-card__deadline ${escapeHtml(vis)}"><span>${escapeHtml(
+      RU.fields.remediationDeadline
+    )}: </span><strong>${escapeHtml(formatRuDateTime(due))}</strong>${extra}</div>`;
   }
 
   function pickTextField(f, keys) {
@@ -529,6 +603,36 @@
 
     document.body.appendChild(overlay);
 
+    if (!overlay._vmRemediationDelegated) {
+      overlay._vmRemediationDelegated = true;
+      let assigneeTimer = null;
+      overlay.addEventListener("change", (e) => {
+        const t = e.target;
+        if (!(t instanceof HTMLElement)) return;
+        if (!t.matches?.('select[data-vm-rem="ctl-status"]')) return;
+        const st = window.vmRemediationStore;
+        if (!st) return;
+        const rid = safeStr(t.getAttribute("data-rid"));
+        if (!rid) return;
+        st.setCtlStatus(rid, safeStr(t.value));
+        if (typeof window._vmRemediationRefresh === "function") window._vmRemediationRefresh();
+      });
+      overlay.addEventListener("input", (e) => {
+        const t = e.target;
+        if (!(t instanceof HTMLElement)) return;
+        if (!t.matches?.('input[data-vm-rem="assignee"]')) return;
+        const st = window.vmRemediationStore;
+        if (!st) return;
+        const rid = safeStr(t.getAttribute("data-rid"));
+        if (!rid) return;
+        clearTimeout(assigneeTimer);
+        assigneeTimer = setTimeout(() => {
+          st.setAssignee(rid, safeStr(t.value));
+          if (typeof window._vmRemediationRefresh === "function") window._vmRemediationRefresh();
+        }, 280);
+      });
+    }
+
     overlay.addEventListener("click", (e) => {
       if (e.target === overlay) closeFindingModal();
     });
@@ -617,6 +721,9 @@
     const description = pickTextField(f, ["description", "details", "detail", "long_description"]);
     const solution = pickTextField(f, ["solution", "recommendation", "fix", "remediation"]);
 
+    const dueMs = getRemediationDueMs(f);
+    const dueLabel = dueMs === null ? RU.remediation.noDetected : formatRuDateTime(dueMs);
+
     if (titleEl) titleEl.textContent = name || RU.modal.title;
     if (subtitleEl) {
       subtitleEl.textContent = [host && host !== "-" ? host : "", portDisplay ? `порт ${portDisplay}` : ""]
@@ -650,6 +757,11 @@
           ${kvCard(RU.fields.detected, escapeHtml(detected || "—"))}
         </div>
 
+        <div style="margin-top:10px;display:grid;grid-template-columns:repeat(2, minmax(0, 1fr));gap:10px;">
+          ${kvCard(RU.fields.remediationDeadline, escapeHtml(dueLabel))}
+          ${kvCard(RU.fields.remediationNorm, escapeHtml(RU.remediation.normShort))}
+        </div>
+
         <div style="margin-top:10px;display:grid;grid-template-columns:repeat(3, minmax(0, 1fr));gap:10px;">
           ${kvCard(
             RU.fields.cve,
@@ -671,14 +783,64 @@
       </div>
     `;
 
+    const rawRidModal = String(f.__rid || f.id || "");
+    const ridAttrModal = escapeHtml(rawRidModal);
+    const store = window.vmRemediationStore;
+    const curCtl = store && rawRidModal ? store.getCtlStatus(rawRidModal) || "rem_open" : "rem_open";
+    const remCtl =
+      f._vmRemediationUi && store && rawRidModal
+        ? `
+      <div style="margin-top:14px;padding:12px;border:1px solid rgba(255,255,255,.1);border-radius:14px;background:rgba(45,212,191,.06);">
+        <div style="font-weight:1000;margin-bottom:10px;">Контроль устранения</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div>
+            <div style="color:var(--color-text-secondary);font-size:12px;font-weight:800;margin-bottom:6px;">${escapeHtml(
+              RU.fields.remediationCtlStatus
+            )}</div>
+            <select class="form-control" data-vm-rem="ctl-status" data-rid="${ridAttrModal}" id="fdmRemCtlStatus">
+              ${["rem_open", "rem_assigned", "rem_in_progress", "rem_verified", "rem_done"]
+                .map((k) => {
+                  const labels = {
+                    rem_open: "Ожидает устранения",
+                    rem_assigned: "Назначено",
+                    rem_in_progress: "В работе",
+                    rem_verified: "На приёмке",
+                    rem_done: "Устранено (контроль)",
+                  };
+                  const sel = curCtl === k ? " selected" : "";
+                  return `<option value="${escapeHtml(k)}"${sel}>${escapeHtml(labels[k])}</option>`;
+                })
+                .join("")}
+            </select>
+          </div>
+          <div>
+            <div style="color:var(--color-text-secondary);font-size:12px;font-weight:800;margin-bottom:6px;">${escapeHtml(
+              RU.fields.remediationAssignee
+            )}</div>
+            <input class="form-control" type="text" data-vm-rem="assignee" data-rid="${ridAttrModal}" id="fdmRemAssignee"
+              list="vmRemediationExecutorList" autocomplete="off"
+              value="${escapeHtml(store.getAssignee(rawRidModal))}" />
+          </div>
+        </div>
+        <div style="margin-top:8px;font-size:11px;color:var(--color-text-secondary);line-height:1.35;">
+          ${escapeHtml("Изменения сохраняются в браузере (localStorage).")}
+        </div>
+      </div>
+      <datalist id="vmRemediationExecutorList">${(store.getAssigneeSuggestions ? store.getAssigneeSuggestions() : [])
+        .map((x) => `<option value="${escapeHtml(x)}"></option>`)
+        .join("")}</datalist>
+    `
+        : "";
+
     const blocks = `
+      ${longBlock(RU.remediation.normTitle, RU.remediation.normBody)}
       ${longBlock(RU.modal.sectionSummary, summary)}
       ${longBlock(RU.modal.sectionDescription, description)}
       ${longBlock(RU.modal.sectionSolution, solution)}
       ${longBlock(RU.modal.sectionRaw, JSON.stringify(f, null, 2))}
     `;
 
-    if (bodyEl) bodyEl.innerHTML = mainGrid + blocks;
+    if (bodyEl) bodyEl.innerHTML = mainGrid + remCtl + blocks;
 
     window._lastFindingForCopy = f;
     if (copyBtn && !copyBtn._bound) {
@@ -873,6 +1035,7 @@
               const metaHtml = metaTags.length
                 ? `<div class="findings-card__meta">${metaTags.join("")}</div>`
                 : "";
+              const deadlineRow = remediationDeadlineHtml(f);
               return `
               <article class="findings-card findings-card--${sevClass}" data-rid="${escapeHtml(
                 String(f.__rid)
@@ -884,6 +1047,7 @@
                 </div>
                 <p class="findings-card__title">${escapeHtml(findingName)}</p>
                 ${metaHtml}
+                ${deadlineRow}
                 <div class="findings-card__badges">
                   ${renderSeverityBadge(f.severity)}
                   ${renderStatusBadge(f)}
@@ -943,6 +1107,7 @@
         if (elTableWrap && !elTableWrap._rowClickBound) {
           elTableWrap._rowClickBound = true;
           elTableWrap.addEventListener("click", (e) => {
+            if (e.target?.closest?.("select, input, button, textarea, label")) return;
             const card = e.target?.closest?.(".findings-card[data-rid]");
             if (!card) return;
             const rid = card.getAttribute("data-rid");
@@ -951,6 +1116,7 @@
           });
           elTableWrap.addEventListener("keydown", (e) => {
             if (e.key !== "Enter" && e.key !== " ") return;
+            if (e.target?.closest?.("select, input, textarea")) return;
             const card = e.target?.closest?.(".findings-card[data-rid]");
             if (!card) return;
             e.preventDefault();
@@ -1016,4 +1182,9 @@
       }
     },
   };
+
+  window.vmShowFindingModal = showFindingModal;
+  window.vmRemediationDeadlineHtml = remediationDeadlineHtml;
+  window.vmGetRemediationDueMs = getRemediationDueMs;
+  window.vmFormatRuDateTimeMs = formatRuDateTime;
 })();

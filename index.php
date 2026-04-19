@@ -173,6 +173,7 @@ function asset_url(string $path): string {
           <button class="navbar-item active" data-page="dashboard" onclick="router.navigate('dashboard')">Панель</button>
           <button class="navbar-item" data-page="assets" onclick="router.navigate('assets')">Активы</button>
           <button class="navbar-item" data-page="findings" onclick="router.navigate('findings')">Уязвимости</button>
+          <button class="navbar-item" data-page="remediation" onclick="router.navigate('remediation')">Контроль устранения</button>
           <button class="navbar-item" data-page="scans" onclick="router.navigate('scans')">Сканы</button>
           <button class="navbar-item" data-page="reports" onclick="router.navigate('reports')">Отчёты</button>
           <button class="navbar-item" data-page="settings" onclick="router.navigate('settings')">Настройки</button>
@@ -221,6 +222,7 @@ function asset_url(string $path): string {
   <script src="<?= e(asset_url('js/pages/dashboard.js')) ?>"></script>
   <script src="<?= e(asset_url('js/pages/assets.js')) ?>"></script>
   <script src="<?= e(asset_url('js/pages/findings.js')) ?>"></script>
+  <script src="<?= e(asset_url('js/pages/remediation.js')) ?>"></script>
   <script src="<?= e(asset_url('js/pages/scans.js')) ?>"></script>
   <script src="<?= e(asset_url('js/pages/reports.js')) ?>"></script>
   <script src="<?= e(asset_url('js/pages/settings.js')) ?>"></script>
