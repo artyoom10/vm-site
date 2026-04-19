@@ -201,6 +201,8 @@
   }
 
   function normalizeStatusKeyForPill(f) {
+    const wf = window.vmFindingWorkflowStore;
+    if (wf) return wf.getStatusForFinding(f);
     let key = String(f.status_key || lower(f.status) || "open").replace(/\s+/g, "_");
     const known = new Set([
       "open",

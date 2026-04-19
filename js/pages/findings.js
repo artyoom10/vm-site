@@ -3,6 +3,158 @@
   "use strict";
   window.pages = window.pages || {};
 
+  const WF_LS = "vm_finding_workflow_v1";
+  const WF_LEGACY_LS = "vm_remediation_control_v1";
+
+  const WORKFLOW_STATUS_KEYS = [
+    "open",
+    "in_progress",
+    "accepted_risk",
+    "investigating",
+    "resolved",
+    "false_positive",
+    "other",
+  ];
+  const WORKFLOW_STATUS_LABELS = {
+    open: "Открыто",
+    in_progress: "В работе",
+    accepted_risk: "Риск принят",
+    investigating: "Расследование",
+    resolved: "Устранено",
+    false_positive: "Ложноположительное",
+    other: "Прочее",
+  };
+  const STATUS_SORT_ORDER = {
+    open: 0,
+    in_progress: 1,
+    investigating: 2,
+    accepted_risk: 3,
+    false_positive: 4,
+    resolved: 5,
+    other: 6,
+  };
+
+  function normalizeScannerStatusKey(f) {
+    if (!f || typeof f !== "object") return "open";
+    const raw = f.status_key != null && String(f.status_key).trim() !== "" ? String(f.status_key) : String(f.status ?? "");
+    let key = raw.trim().toLowerCase().replace(/\s+/g, "_").replace(/-/g, "_") || "open";
+    const known = new Set(WORKFLOW_STATUS_KEYS);
+    if (!known.has(key)) key = "other";
+    return key;
+  }
+
+  function wfMigrateLegacyOnce() {
+    if (localStorage.getItem(WF_LS)) return;
+    try {
+      const leg = localStorage.getItem(WF_LEGACY_LS);
+      if (!leg) {
+        localStorage.setItem(WF_LS, JSON.stringify({ status: {}, assignees: {} }));
+        return;
+      }
+      const o = JSON.parse(leg);
+      const next = { status: {}, assignees: { ...(o && o.assignees ? o.assignees : {}) } };
+      const map = {
+        rem_open: "open",
+        rem_assigned: "in_progress",
+        rem_in_progress: "in_progress",
+        rem_verified: "investigating",
+        rem_done: "resolved",
+      };
+      if (o && o.ctlStatus && typeof o.ctlStatus === "object") {
+        Object.keys(o.ctlStatus).forEach((rid) => {
+          const v = String(o.ctlStatus[rid] || "").trim();
+          next.status[rid] = map[v] || "open";
+        });
+      }
+      localStorage.setItem(WF_LS, JSON.stringify(next));
+    } catch (_) {
+      localStorage.setItem(WF_LS, JSON.stringify({ status: {}, assignees: {} }));
+    }
+  }
+
+  function wfRead() {
+    wfMigrateLegacyOnce();
+    try {
+      const raw = localStorage.getItem(WF_LS);
+      const o = raw ? JSON.parse(raw) : {};
+      return {
+        status: o && typeof o.status === "object" ? o.status : {},
+        assignees: o && typeof o.assignees === "object" ? o.assignees : {},
+      };
+    } catch (_) {
+      return { status: {}, assignees: {} };
+    }
+  }
+
+  function wfWrite(data) {
+    try {
+      localStorage.setItem(WF_LS, JSON.stringify(data));
+    } catch (_) {}
+  }
+
+  window.vmFindingWorkflowStore = {
+    STATUS_OPTIONS: WORKFLOW_STATUS_KEYS.map((key) => ({
+      key,
+      label: WORKFLOW_STATUS_LABELS[key] || key,
+    })),
+    getRid(f) {
+      return String(f?.__rid || f?.id || f?.findingid || "").trim();
+    },
+    getStatusForFinding(f) {
+      const rid = this.getRid(f);
+      const scanner = normalizeScannerStatusKey(f);
+      if (!rid) return scanner;
+      const { status } = wfRead();
+      const s = String(status[rid] || "").trim();
+      if (s && new Set(WORKFLOW_STATUS_KEYS).has(s)) return s;
+      return scanner;
+    },
+    setStatusForRid(rid, key) {
+      const r = String(rid || "").trim();
+      if (!r) return;
+      const k = String(key || "").trim();
+      const allowed = new Set(WORKFLOW_STATUS_KEYS);
+      if (!allowed.has(k)) return;
+      const o = wfRead();
+      o.status = o.status || {};
+      o.status[r] = k;
+      wfWrite(o);
+    },
+    getAssignee(rid) {
+      const v = wfRead().assignees[String(rid)];
+      return v === null || v === undefined ? "" : String(v).trim();
+    },
+    setAssignee(rid, value) {
+      const r = String(rid || "").trim();
+      if (!r) return;
+      const o = wfRead();
+      o.assignees = o.assignees || {};
+      o.assignees[r] = String(value || "").trim();
+      wfWrite(o);
+    },
+    getAssigneeSuggestions() {
+      const o = wfRead();
+      const set = new Set(["Не назначен", "Системный администратор", "Отдел ИБ", "ИБ-офицер"]);
+      Object.values(o.assignees || {}).forEach((x) => {
+        const s = String(x || "").trim();
+        if (s) set.add(s);
+      });
+      return Array.from(set).sort((a, b) => a.localeCompare(b, "ru")).slice(0, 60);
+    },
+  };
+
+  window.vmRemediationStore = {
+    getAssignee(rid) {
+      return window.vmFindingWorkflowStore.getAssignee(rid);
+    },
+    setAssignee(rid, v) {
+      window.vmFindingWorkflowStore.setAssignee(rid, v);
+    },
+    getAssigneeSuggestions() {
+      return window.vmFindingWorkflowStore.getAssigneeSuggestions();
+    },
+  };
+
   // ===== RU LABELS =====
   const RU = {
     title: "Уязвимости",
@@ -85,21 +237,18 @@
       threat: "Threat",
       detected: "Обнаружено",
       remediationDeadline: "Крайний срок устранения",
-      remediationNorm: "Норматив (п. 6.4)",
-      remediationAssignee: "Исполнитель (контроль)",
-      remediationCtlStatus: "Статус устранения",
+      remediationAssignee: "Исполнитель",
     },
     remediation: {
-      normShort:
-        "Критический — до 24 ч; высокий — до 7 дн; средний — до 4 нед; низкий и инфо — до 4 мес. от даты обнаружения.",
-      normTitle: "6.4. Рекомендуемые сроки устранения уязвимостей",
-      normBody: `критический уровень опасности до 24 часов;
-высокий уровень опасности – до 7 дней;
-средний уровень опасности – до 4 недель;
-низкий уровень опасности – до 4 месяцев.`,
       noDetected: "Дата обнаружения не задана — срок не вычислен",
       overdue: "Просрочено",
       dueSoon: "Скоро истекает",
+    },
+    sort: {
+      label: "Сортировка",
+      cvssDesc: "CVSS (выше сначала)",
+      statusPriority: "Статус (по этапу)",
+      statusName: "Статус (А→Я)",
     },
   };
 
@@ -159,7 +308,7 @@
   }
 
   function statusLabelForFinding(f) {
-    const key = f.status_key || lower(f.status) || "open";
+    const key = normalizeStatusKey(f);
     if (RU.status[key]) return RU.status[key];
     return safeStr(f.status_display || key);
   }
@@ -242,7 +391,7 @@
   }
 
   function isFindingClosedForDeadline(f) {
-    const k = f.status_key || lower(f.status);
+    const k = normalizeStatusKey(f);
     return k === "resolved" || k === "false_positive";
   }
 
@@ -364,6 +513,7 @@
       f.solution,
       f.owner_team,
       f.department,
+      statusLabelForFinding(f),
 
       raw?.ip,
       raw?.hostname,
@@ -414,18 +564,7 @@
   }
 
   function normalizeStatusKey(f) {
-    let key = String(f.status_key || lower(f.status) || "open").replace(/\s+/g, "_");
-    const known = new Set([
-      "open",
-      "in_progress",
-      "accepted_risk",
-      "investigating",
-      "resolved",
-      "false_positive",
-      "other",
-    ]);
-    if (!known.has(key)) key = "other";
-    return key;
+    return window.vmFindingWorkflowStore.getStatusForFinding(f);
   }
 
   function renderStatusBadge(f) {
@@ -609,25 +748,28 @@
       overlay.addEventListener("change", (e) => {
         const t = e.target;
         if (!(t instanceof HTMLElement)) return;
-        if (!t.matches?.('select[data-vm-rem="ctl-status"]')) return;
-        const st = window.vmRemediationStore;
-        if (!st) return;
-        const rid = safeStr(t.getAttribute("data-rid"));
-        if (!rid) return;
-        st.setCtlStatus(rid, safeStr(t.value));
-        if (typeof window._vmRemediationRefresh === "function") window._vmRemediationRefresh();
+        if (t.matches?.("select[data-vm-workflow-status]")) {
+          const rid = safeStr(t.getAttribute("data-rid"));
+          if (!rid) return;
+          window.vmFindingWorkflowStore.setStatusForRid(rid, safeStr(t.value));
+          if (typeof window._vmFindingsRefresh === "function") window._vmFindingsRefresh();
+          if (typeof window._vmRemediationRefresh === "function") window._vmRemediationRefresh();
+          const cur = window._lastFindingForCopy;
+          if (cur) showFindingModal(cur);
+          return;
+        }
       });
       overlay.addEventListener("input", (e) => {
         const t = e.target;
         if (!(t instanceof HTMLElement)) return;
         if (!t.matches?.('input[data-vm-rem="assignee"]')) return;
-        const st = window.vmRemediationStore;
-        if (!st) return;
+        const wf = window.vmFindingWorkflowStore;
+        if (!wf) return;
         const rid = safeStr(t.getAttribute("data-rid"));
         if (!rid) return;
         clearTimeout(assigneeTimer);
         assigneeTimer = setTimeout(() => {
-          st.setAssignee(rid, safeStr(t.value));
+          wf.setAssignee(rid, safeStr(t.value));
           if (typeof window._vmRemediationRefresh === "function") window._vmRemediationRefresh();
         }, 280);
       });
@@ -685,6 +827,19 @@
     `;
   }
 
+  function renderWorkflowStatusSelect(f) {
+    const rid = String(f.__rid || f.id || "");
+    const ridAttr = escapeHtml(rid);
+    const cur = window.vmFindingWorkflowStore.getStatusForFinding(f);
+    const opts = window.vmFindingWorkflowStore.STATUS_OPTIONS || [];
+    return `<select class="form-control" data-vm-workflow-status data-rid="${ridAttr}" style="font-weight:800;max-width:100%;">${opts
+      .map(
+        (o) =>
+          `<option value="${escapeHtml(o.key)}"${o.key === cur ? " selected" : ""}>${escapeHtml(o.label)}</option>`
+      )
+      .join("")}</select>`;
+  }
+
   function showFindingModal(f) {
     if (!f) return;
 
@@ -736,7 +891,7 @@
       <div style="border:1px solid rgba(255,255,255,.08);border-radius:16px;background:rgba(255,255,255,.02);padding:12px;">
         <div style="display:grid;grid-template-columns:repeat(3, minmax(0, 1fr));gap:10px;">
           ${kvCard(RU.fields.severity, renderSeverityBadge(sev))}
-          ${kvCard(RU.fields.status, renderStatusBadge(f))}
+          ${kvCard(RU.fields.status, renderWorkflowStatusSelect(f))}
           ${kvCard(RU.fields.cvss, `<span style="font-size:18px;">${escapeHtml(cvss)}</span>`)}
         </div>
 
@@ -757,9 +912,8 @@
           ${kvCard(RU.fields.detected, escapeHtml(detected || "—"))}
         </div>
 
-        <div style="margin-top:10px;display:grid;grid-template-columns:repeat(2, minmax(0, 1fr));gap:10px;">
+        <div style="margin-top:10px;display:grid;grid-template-columns:1fr;gap:10px;">
           ${kvCard(RU.fields.remediationDeadline, escapeHtml(dueLabel))}
-          ${kvCard(RU.fields.remediationNorm, escapeHtml(RU.remediation.normShort))}
         </div>
 
         <div style="margin-top:10px;display:grid;grid-template-columns:repeat(3, minmax(0, 1fr));gap:10px;">
@@ -785,55 +939,31 @@
 
     const rawRidModal = String(f.__rid || f.id || "");
     const ridAttrModal = escapeHtml(rawRidModal);
-    const store = window.vmRemediationStore;
-    const curCtl = store && rawRidModal ? store.getCtlStatus(rawRidModal) || "rem_open" : "rem_open";
+    const wf = window.vmFindingWorkflowStore;
     const remCtl =
-      f._vmRemediationUi && store && rawRidModal
+      f._vmRemediationUi && wf && rawRidModal
         ? `
       <div style="margin-top:14px;padding:12px;border:1px solid rgba(255,255,255,.1);border-radius:14px;background:rgba(45,212,191,.06);">
         <div style="font-weight:1000;margin-bottom:10px;">Контроль устранения</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-          <div>
-            <div style="color:var(--color-text-secondary);font-size:12px;font-weight:800;margin-bottom:6px;">${escapeHtml(
-              RU.fields.remediationCtlStatus
-            )}</div>
-            <select class="form-control" data-vm-rem="ctl-status" data-rid="${ridAttrModal}" id="fdmRemCtlStatus">
-              ${["rem_open", "rem_assigned", "rem_in_progress", "rem_verified", "rem_done"]
-                .map((k) => {
-                  const labels = {
-                    rem_open: "Ожидает устранения",
-                    rem_assigned: "Назначено",
-                    rem_in_progress: "В работе",
-                    rem_verified: "На приёмке",
-                    rem_done: "Устранено (контроль)",
-                  };
-                  const sel = curCtl === k ? " selected" : "";
-                  return `<option value="${escapeHtml(k)}"${sel}>${escapeHtml(labels[k])}</option>`;
-                })
-                .join("")}
-            </select>
-          </div>
-          <div>
-            <div style="color:var(--color-text-secondary);font-size:12px;font-weight:800;margin-bottom:6px;">${escapeHtml(
-              RU.fields.remediationAssignee
-            )}</div>
-            <input class="form-control" type="text" data-vm-rem="assignee" data-rid="${ridAttrModal}" id="fdmRemAssignee"
-              list="vmRemediationExecutorList" autocomplete="off"
-              value="${escapeHtml(store.getAssignee(rawRidModal))}" />
-          </div>
+        <div>
+          <div style="color:var(--color-text-secondary);font-size:12px;font-weight:800;margin-bottom:6px;">${escapeHtml(
+            RU.fields.remediationAssignee
+          )}</div>
+          <input class="form-control" type="text" data-vm-rem="assignee" data-rid="${ridAttrModal}" id="fdmRemAssignee"
+            list="vmRemediationExecutorList" autocomplete="off"
+            value="${escapeHtml(wf.getAssignee(rawRidModal))}" />
         </div>
         <div style="margin-top:8px;font-size:11px;color:var(--color-text-secondary);line-height:1.35;">
-          ${escapeHtml("Изменения сохраняются в браузере (localStorage).")}
+          ${escapeHtml("Статус и исполнитель сохраняются в браузере (localStorage).")}
         </div>
       </div>
-      <datalist id="vmRemediationExecutorList">${(store.getAssigneeSuggestions ? store.getAssigneeSuggestions() : [])
+      <datalist id="vmRemediationExecutorList">${(wf.getAssigneeSuggestions ? wf.getAssigneeSuggestions() : [])
         .map((x) => `<option value="${escapeHtml(x)}"></option>`)
         .join("")}</datalist>
     `
         : "";
 
     const blocks = `
-      ${longBlock(RU.remediation.normTitle, RU.remediation.normBody)}
       ${longBlock(RU.modal.sectionSummary, summary)}
       ${longBlock(RU.modal.sectionDescription, description)}
       ${longBlock(RU.modal.sectionSolution, solution)}
@@ -896,13 +1026,6 @@
           return;
         }
 
-        // sort by CVSS desc
-        allFindings = allFindings.slice().sort((a, b) => {
-          const cvssB = toNum(b.cvss_score || b.cvssbase || b.cvss_base || 0, 0);
-          const cvssA = toNum(a.cvss_score || a.cvssbase || a.cvss_base || 0, 0);
-          return cvssB - cvssA;
-        });
-
         // stable row id
         allFindings = allFindings.map((f, i) => ({
           ...(f || {}),
@@ -957,6 +1080,15 @@
                   <input class="form-control" id="findingsSearch" placeholder="${escapeHtml(RU.placeholders.search)}" autocomplete="off" />
                 </div>
 
+                <div>
+                  <label class="form-label" for="findingsSort">${RU.sort.label}</label>
+                  <select class="form-control" id="findingsSort">
+                    <option value="cvss_desc">${escapeHtml(RU.sort.cvssDesc)}</option>
+                    <option value="status_priority">${escapeHtml(RU.sort.statusPriority)}</option>
+                    <option value="status_name">${escapeHtml(RU.sort.statusName)}</option>
+                  </select>
+                </div>
+
                 <div class="findings-toolbar__actions">
                   <button class="btn btn--secondary btn--sm" id="findingsResetBtn" type="button">${RU.filters.reset}</button>
                 </div>
@@ -978,6 +1110,7 @@
         const elDepartment = document.getElementById("findingsDepartment");
         const elHost = document.getElementById("findingsHost");
         const elSearch = document.getElementById("findingsSearch");
+        const elSort = document.getElementById("findingsSort");
         const elReset = document.getElementById("findingsResetBtn");
         const elChips = document.getElementById("findingsChips");
 
@@ -992,7 +1125,31 @@
             department: safeStr(elDepartment?.value).trim(),
             host: safeStr(elHost?.value).trim(),
             query: safeStr(elSearch?.value).trim().toLowerCase(),
+            sort: safeStr(elSort?.value).trim() || "cvss_desc",
           };
+        }
+
+        function sortFindingsList(arr) {
+          const mode = safeStr(elSort?.value).trim() || "cvss_desc";
+          const copy = arr.slice();
+          const cv = (x) => toNum(x.cvss_score || x.cvssbase || x.cvss_base || 0, 0);
+          if (mode === "status_priority") {
+            copy.sort((a, b) => {
+              const ra = STATUS_SORT_ORDER[normalizeStatusKey(a)] ?? 99;
+              const rb = STATUS_SORT_ORDER[normalizeStatusKey(b)] ?? 99;
+              if (ra !== rb) return ra - rb;
+              return cv(b) - cv(a);
+            });
+          } else if (mode === "status_name") {
+            copy.sort((a, b) => {
+              const c = statusLabelForFinding(a).localeCompare(statusLabelForFinding(b), "ru");
+              if (c !== 0) return c;
+              return cv(b) - cv(a);
+            });
+          } else {
+            copy.sort((a, b) => cv(b) - cv(a));
+          }
+          return copy;
         }
 
         function renderTable() {
@@ -1067,10 +1224,7 @@
           let base = allFindings;
 
           if (status) {
-            base = base.filter((f) => {
-              const key = f.status_key || lower(f.status);
-              return key === status;
-            });
+            base = base.filter((f) => normalizeStatusKey(f) === status);
           }
 
           if (department) {
@@ -1091,6 +1245,8 @@
           let out = base;
           if (severity) out = out.filter((f) => lower(f.severity) === severity);
 
+          out = sortFindingsList(out);
+
           const prevPage = paginator.currentPage;
           paginator.setItems(out);
 
@@ -1101,6 +1257,10 @@
 
         // pagination callback
         window._renderFindingsPage = function () {
+          applyFilters({ resetPage: false });
+        };
+
+        window._vmFindingsRefresh = function () {
           applyFilters({ resetPage: false });
         };
 
@@ -1130,6 +1290,7 @@
         elStatus?.addEventListener("change", () => applyFilters({ resetPage: true }));
         elDepartment?.addEventListener("change", () => applyFilters({ resetPage: true }));
         elHost?.addEventListener("change", () => applyFilters({ resetPage: true }));
+        elSort?.addEventListener("change", () => applyFilters({ resetPage: true }));
 
         elChips?.addEventListener("click", (e) => {
           const btn = e.target?.closest?.("button[data-sev]");
@@ -1152,6 +1313,7 @@
           if (elDepartment) elDepartment.value = "";
           if (elHost) elHost.value = "";
           if (elSearch) elSearch.value = "";
+          if (elSort) elSort.value = "cvss_desc";
           applyFilters({ resetPage: true });
         });
 

@@ -1,75 +1,12 @@
-// js/pages/remediation.js — контроль устранения (сроки п. 6.4, исполнитель, статус)
+// js/pages/remediation.js — контроль устранения (срок, исполнитель; статус — vmFindingWorkflowStore в findings.js)
 (() => {
   "use strict";
   window.pages = window.pages || {};
 
-  const LS_KEY = "vm_remediation_control_v1";
-
-  const REM_STATUS_OPTS = [
-    { key: "rem_open", label: "Ожидает устранения" },
-    { key: "rem_assigned", label: "Назначено" },
-    { key: "rem_in_progress", label: "В работе" },
-    { key: "rem_verified", label: "На приёмке" },
-    { key: "rem_done", label: "Устранено (контроль)" },
-  ];
-
-  function readStore() {
-    try {
-      const raw = localStorage.getItem(LS_KEY);
-      const o = raw ? JSON.parse(raw) : {};
-      return o && typeof o === "object" ? o : {};
-    } catch (_) {
-      return {};
-    }
-  }
-
-  function writeStore(o) {
-    try {
-      localStorage.setItem(LS_KEY, JSON.stringify(o));
-    } catch (_) {}
-  }
-
-  window.vmRemediationStore = {
-    getAssignee(rid) {
-      const o = readStore();
-      const v = o.assignees && o.assignees[rid];
-      return v === null || v === undefined ? "" : String(v).trim();
-    },
-    setAssignee(rid, value) {
-      const o = readStore();
-      o.assignees = o.assignees || {};
-      o.assignees[rid] = String(value || "").trim();
-      writeStore(o);
-    },
-    getCtlStatus(rid) {
-      const o = readStore();
-      const v = o.ctlStatus && o.ctlStatus[rid];
-      const s = String(v || "").trim();
-      const allowed = new Set(REM_STATUS_OPTS.map((x) => x.key));
-      return allowed.has(s) ? s : "rem_open";
-    },
-    setCtlStatus(rid, value) {
-      const o = readStore();
-      o.ctlStatus = o.ctlStatus || {};
-      const allowed = new Set(REM_STATUS_OPTS.map((x) => x.key));
-      o.ctlStatus[rid] = allowed.has(value) ? value : "rem_open";
-      writeStore(o);
-    },
-    getAssigneeSuggestions() {
-      const o = readStore();
-      const set = new Set(["Не назначен", "Системный администратор", "Отдел ИБ", "ИБ-офицер"]);
-      Object.values(o.assignees || {}).forEach((x) => {
-        const s = String(x || "").trim();
-        if (s) set.add(s);
-      });
-      return Array.from(set).sort((a, b) => a.localeCompare(b, "ru")).slice(0, 60);
-    },
-  };
-
   const RU = {
     title: "Контроль устранения",
     filters: {
-      status: "Статус (сканер)",
+      status: "Статус",
       department: "Подразделение",
       host: "Хост",
       search: "Поиск",
@@ -114,8 +51,14 @@
     },
     fields: {
       deadline: "Крайний срок устранения",
-      ctl: "Статус устранения",
+      status: "Статус",
       assignee: "Исполнитель",
+    },
+    sort: {
+      label: "Сортировка",
+      cvssDesc: "CVSS (выше сначала)",
+      statusPriority: "Статус (по этапу)",
+      statusName: "Статус (А→Я)",
     },
     noDetected: "Дата обнаружения не задана — срок не вычислен",
     overdue: "Просрочено",
@@ -288,19 +231,19 @@
     return `<span class="findings-pill ${pill}">${escapeHtml(sevLabel(sev))}</span>`;
   }
 
+  const STATUS_SORT_ORDER_REM = {
+    open: 0,
+    in_progress: 1,
+    investigating: 2,
+    accepted_risk: 3,
+    false_positive: 4,
+    resolved: 5,
+    other: 6,
+  };
+
   function normalizeStatusKey(f) {
-    let key = String(f.status_key || lower(f.status) || "open").replace(/\s+/g, "_");
-    const known = new Set([
-      "open",
-      "in_progress",
-      "accepted_risk",
-      "investigating",
-      "resolved",
-      "false_positive",
-      "other",
-    ]);
-    if (!known.has(key)) key = "other";
-    return key;
+    const wf = window.vmFindingWorkflowStore;
+    return wf ? wf.getStatusForFinding(f) : "open";
   }
 
   function renderStatusBadge(f) {
@@ -353,7 +296,9 @@
     const dueFn = window.vmGetRemediationDueMs;
     const due = typeof dueFn === "function" ? dueFn(f) : null;
     if (due === null) return "";
-    if (window.vmRemediationStore.getCtlStatus(rid) === "rem_done") return "";
+    const wf = window.vmFindingWorkflowStore;
+    const st = wf ? wf.getStatusForFinding({ ...f, __rid: rid }) : "open";
+    if (st === "resolved" || st === "false_positive") return "";
     const now = Date.now();
     if (now > due) return "findings-card__deadline--over";
     if (due - now < 72 * 60 * 60 * 1000) return "findings-card__deadline--warn";
@@ -386,18 +331,22 @@
     return safeStr(rid).replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 120) || "x";
   }
 
-  function renderCtlSelect(rid, current) {
+  function renderWorkflowCardSelect(f) {
+    const wf = window.vmFindingWorkflowStore;
+    if (!wf) return "";
+    const rid = String(f.__rid);
     const rAttr = escapeHtml(rid);
     const idSafe = escapeHtml(safeHtmlIdPart(rid));
-    const cur = REM_STATUS_OPTS.some((o) => o.key === current) ? current : "rem_open";
-    return `<select class="form-control" id="rem-ctl-${idSafe}" data-vm-card="ctl" data-rid="${rAttr}">
-      ${REM_STATUS_OPTS.map(
+    const cur = wf.getStatusForFinding(f);
+    const opts = wf.STATUS_OPTIONS || [];
+    return `<select class="form-control" id="rem-wf-${idSafe}" data-vm-card="workflow" data-rid="${rAttr}">${opts
+      .map(
         (o) =>
           `<option value="${escapeHtml(o.key)}"${o.key === cur ? " selected" : ""}>${escapeHtml(
             o.label
           )}</option>`
-      ).join("")}
-    </select>`;
+      )
+      .join("")}</select>`;
   }
 
   class PaginatedTable {
@@ -505,12 +454,6 @@
           return;
         }
 
-        allFindings = allFindings.slice().sort((a, b) => {
-          const cvssB = toNum(b.cvss_score || b.cvssbase || b.cvss_base || 0, 0);
-          const cvssA = toNum(a.cvss_score || a.cvssbase || a.cvss_base || 0, 0);
-          return cvssB - cvssA;
-        });
-
         allFindings = allFindings.map((f, i) => ({
           ...(f || {}),
           __rid: safeStr(f?.id || f?.findingid || "") || `rid-${i + 1}`,
@@ -525,7 +468,8 @@
         const departments = uniqDepartments(allFindings);
         let selectedSeverity = "";
 
-        const sugg = window.vmRemediationStore.getAssigneeSuggestions();
+        const wfStore = window.vmFindingWorkflowStore;
+        const sugg = wfStore && wfStore.getAssigneeSuggestions ? wfStore.getAssigneeSuggestions() : [];
         const datalistHtml = `<datalist id="vmRemExecutorsPage">${sugg
           .map((x) => `<option value="${escapeHtml(x)}"></option>`)
           .join("")}</datalist>`;
@@ -568,6 +512,14 @@
                     RU.placeholders.search
                   )}" autocomplete="off" />
                 </div>
+                <div>
+                  <label class="form-label" for="remediationSort">${RU.sort.label}</label>
+                  <select class="form-control" id="remediationSort">
+                    <option value="cvss_desc">${escapeHtml(RU.sort.cvssDesc)}</option>
+                    <option value="status_priority">${escapeHtml(RU.sort.statusPriority)}</option>
+                    <option value="status_name">${escapeHtml(RU.sort.statusName)}</option>
+                  </select>
+                </div>
                 <div class="findings-toolbar__actions">
                   <button class="btn btn--secondary btn--sm" id="remediationResetBtn" type="button">${RU.filters.reset}</button>
                 </div>
@@ -587,6 +539,7 @@
         const elDepartment = document.getElementById("remediationDepartment");
         const elHost = document.getElementById("remediationHost");
         const elSearch = document.getElementById("remediationSearch");
+        const elSort = document.getElementById("remediationSort");
         const elReset = document.getElementById("remediationResetBtn");
         const elChips = document.getElementById("remediationChips");
         const elSummary = document.getElementById("remediationSummary");
@@ -600,7 +553,31 @@
             department: safeStr(elDepartment?.value).trim(),
             host: safeStr(elHost?.value).trim(),
             query: safeStr(elSearch?.value).trim().toLowerCase(),
+            sort: safeStr(elSort?.value).trim() || "cvss_desc",
           };
+        }
+
+        function sortRemediationList(arr) {
+          const mode = safeStr(elSort?.value).trim() || "cvss_desc";
+          const copy = arr.slice();
+          const cv = (x) => toNum(x.cvss_score || x.cvssbase || x.cvss_base || 0, 0);
+          if (mode === "status_priority") {
+            copy.sort((a, b) => {
+              const ra = STATUS_SORT_ORDER_REM[normalizeStatusKey(a)] ?? 99;
+              const rb = STATUS_SORT_ORDER_REM[normalizeStatusKey(b)] ?? 99;
+              if (ra !== rb) return ra - rb;
+              return cv(b) - cv(a);
+            });
+          } else if (mode === "status_name") {
+            copy.sort((a, b) => {
+              const c = statusLabelForFinding(a).localeCompare(statusLabelForFinding(b), "ru");
+              if (c !== 0) return c;
+              return cv(b) - cv(a);
+            });
+          } else {
+            copy.sort((a, b) => cv(b) - cv(a));
+          }
+          return copy;
         }
 
         function renderTable() {
@@ -644,10 +621,9 @@
                 ? `<div class="findings-card__meta">${metaTags.join("")}</div>`
                 : "";
               const deadlineRow = remediationCardDeadlineHtml(f, rid);
-              const assigneeVal = window.vmRemediationStore.getAssignee(rid);
-              const ctlCur = window.vmRemediationStore.getCtlStatus(rid);
-              const ridAttr = escapeHtml(rid);
+              const assigneeVal = wfStore ? wfStore.getAssignee(rid) : "";
               const idPart = escapeHtml(safeHtmlIdPart(rid));
+              const ridAttr = escapeHtml(rid);
               return `
               <article class="findings-card findings-card--${sevClass} findings-card--with-rem-controls" data-rid="${ridAttr}" tabindex="0" role="button" aria-label="Подробнее: ${escapeHtml(
                 findingName
@@ -662,8 +638,8 @@
                 ${deadlineRow}
                 <div class="findings-card__remctl">
                   <div>
-                    <label class="form-label" for="rem-ctl-${idPart}">${escapeHtml(RU.fields.ctl)}</label>
-                    ${renderCtlSelect(rid, ctlCur)}
+                    <label class="form-label" for="rem-wf-${idPart}">${escapeHtml(RU.fields.status)}</label>
+                    ${renderWorkflowCardSelect(f)}
                   </div>
                   <div>
                     <label class="form-label" for="rem-as-${idPart}">${escapeHtml(RU.fields.assignee)}</label>
@@ -688,10 +664,7 @@
           let base = allFindings;
 
           if (status) {
-            base = base.filter((f) => {
-              const key = f.status_key || lower(f.status);
-              return key === status;
-            });
+            base = base.filter((f) => normalizeStatusKey(f) === status);
           }
           if (department) {
             base = base.filter((f) => safeStr(f.owner_team || f.department).trim() === department);
@@ -708,6 +681,8 @@
 
           let out = base;
           if (severity) out = out.filter((f) => lower(f.severity) === severity);
+
+          out = sortRemediationList(out);
 
           const prevPage = paginator.currentPage;
           paginator.setItems(out);
@@ -754,10 +729,10 @@
           elTableWrap.addEventListener("change", (e) => {
             const t = e.target;
             if (!(t instanceof HTMLSelectElement)) return;
-            if (!t.matches?.('[data-vm-card="ctl"]')) return;
+            if (!t.matches?.('[data-vm-card="workflow"]')) return;
             const rid = safeStr(t.getAttribute("data-rid"));
             if (!rid) return;
-            window.vmRemediationStore.setCtlStatus(rid, t.value);
+            window.vmFindingWorkflowStore.setStatusForRid(rid, safeStr(t.value));
             applyFilters({ resetPage: false });
           });
 
@@ -770,7 +745,7 @@
             if (!rid) return;
             clearTimeout(assignT);
             assignT = setTimeout(() => {
-              window.vmRemediationStore.setAssignee(rid, t.value);
+              window.vmFindingWorkflowStore.setAssignee(rid, t.value);
             }, 300);
           });
         }
@@ -778,6 +753,7 @@
         elStatus?.addEventListener("change", () => applyFilters({ resetPage: true }));
         elDepartment?.addEventListener("change", () => applyFilters({ resetPage: true }));
         elHost?.addEventListener("change", () => applyFilters({ resetPage: true }));
+        elSort?.addEventListener("change", () => applyFilters({ resetPage: true }));
 
         elChips?.addEventListener("click", (e) => {
           const btn = e.target?.closest?.("button[data-sev]");
@@ -798,6 +774,7 @@
           if (elDepartment) elDepartment.value = "";
           if (elHost) elHost.value = "";
           if (elSearch) elSearch.value = "";
+          if (elSort) elSort.value = "cvss_desc";
           applyFilters({ resetPage: true });
         });
 
