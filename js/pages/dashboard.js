@@ -281,14 +281,16 @@
         const tw = tooltip?.getBoundingClientRect().width || 260;
         const th = tooltip?.getBoundingClientRect().height || 86;
 
-        // Держим tooltip рядом с диаграммой и всегда внутри видимой области.
+        // Якорим tooltip рядом с курсором внутри зоны диаграммы (без уезда далеко вправо).
         const margin = 10;
-        const desiredX = boxRect.right + 10;
-        const fallbackLeft = boxRect.left - tw - 10;
-        const nearCursorX = ev.clientX + 12;
-        const rawX = desiredX + tw < window.innerWidth ? desiredX : (fallbackLeft > margin ? fallbackLeft : nearCursorX);
-        const x = Math.max(margin, Math.min(window.innerWidth - tw - margin, rawX));
-        const y = Math.max(margin + th / 2, Math.min(window.innerHeight - margin - th / 2, ev.clientY));
+        const x = Math.max(
+          boxRect.left + 24,
+          Math.min(boxRect.right - 24, ev.clientX)
+        );
+        const y = Math.max(
+          margin + th / 2,
+          Math.min(window.innerHeight - margin - th / 2, ev.clientY)
+        );
 
         showTooltipAt({
           x,
