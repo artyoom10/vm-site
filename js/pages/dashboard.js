@@ -270,7 +270,6 @@
       });
 
       el.addEventListener("mousemove", (ev) => {
-        // tooltip всегда СНАРУЖИ диаграммы: справа от контейнера (или слева, если нет места)
         const boxRect = box.getBoundingClientRect();
 
         const key = safeStr(el.getAttribute("data-key"));
@@ -280,12 +279,16 @@
         const tooltip = document.getElementById("vmGlobalTooltip");
         if (tooltip) tooltip.style.display = "block";
         const tw = tooltip?.getBoundingClientRect().width || 260;
+        const th = tooltip?.getBoundingClientRect().height || 86;
 
-        const rightX = boxRect.right + 16;
-        const leftX = boxRect.left - tw - 16;
-
-        const x = rightX + tw < window.innerWidth ? rightX : Math.max(12, leftX);
-        const y = ev.clientY;
+        // Держим tooltip рядом с диаграммой и всегда внутри видимой области.
+        const margin = 10;
+        const desiredX = boxRect.right + 10;
+        const fallbackLeft = boxRect.left - tw - 10;
+        const nearCursorX = ev.clientX + 12;
+        const rawX = desiredX + tw < window.innerWidth ? desiredX : (fallbackLeft > margin ? fallbackLeft : nearCursorX);
+        const x = Math.max(margin, Math.min(window.innerWidth - tw - margin, rawX));
+        const y = Math.max(margin + th / 2, Math.min(window.innerHeight - margin - th / 2, ev.clientY));
 
         showTooltipAt({
           x,
