@@ -4216,6 +4216,19 @@ html[data-color-scheme="dark"] .dashboard-kpi.kpi-grid {
   margin-bottom: 1.25rem;
 }
 
+.dashboard-donut-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  align-items: stretch;
+}
+
+@media (max-width: 980px) {
+  .dashboard-donut-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .dashboard-chart-card .card-body {
   background: linear-gradient(165deg, rgba(22, 24, 32, 0.35) 0%, rgba(12, 14, 18, 0.2) 100%);
 }

@@ -14,6 +14,7 @@
       "Сводка по датасету сканирования: распределение серьёзности и топ хостов по количеству находок.",
 
     chartTitle: "Критичность уязвимостей",
+    chartStatusTitle: "Статусы уязвимостей",
     chartHostsTitle: "Уязвимости по хостам",
 
     findings: "Уязвимости",
@@ -31,6 +32,15 @@
       low: "Низкий",
       info: "Инфо",
     },
+    status: {
+      open: "Открыто",
+      in_progress: "В работе",
+      accepted_risk: "Риск принят",
+      investigating: "Расследование",
+      resolved: "Устранено",
+      false_positive: "Ложноположительное",
+      other: "Прочее",
+    },
   };
 
   const COLORS = {
@@ -40,9 +50,27 @@
     low: "#4CAF50",
     info: "#2196F3",
   };
+  const STATUS_COLORS = {
+    open: "#EF5350",
+    in_progress: "#FFC107",
+    investigating: "#03A9F4",
+    accepted_risk: "#AB47BC",
+    resolved: "#66BB6A",
+    false_positive: "#B0BEC5",
+    other: "#90A4AE",
+  };
 
   // слева направо: инфо, низкий, средний, высокий, критический
   const SEV_ORDER = ["info", "low", "medium", "high", "critical"];
+  const STATUS_ORDER = [
+    "open",
+    "in_progress",
+    "investigating",
+    "accepted_risk",
+    "resolved",
+    "false_positive",
+    "other",
+  ];
 
   let dashboardGlobalHooksBound = false;
 
@@ -59,6 +87,16 @@
   function sevLabel(key) {
     const k = lower(key);
     return RU.sev[k] || key;
+  }
+  function statusKeyForFinding(f) {
+    const wf = window.vmFindingWorkflowStore;
+    if (wf && typeof wf.getStatusForFinding === "function") return wf.getStatusForFinding(f);
+    const key = lower(f.status_key || f.status).replace(/\s+/g, "_");
+    return RU.status[key] ? key : "other";
+  }
+  function statusLabel(key) {
+    const k = lower(key);
+    return RU.status[k] || RU.status.other;
   }
   function hostLabel(f) {
     // поля нормализации findings [file:284]
@@ -96,17 +134,31 @@
     }
     return out;
   }
+  function countByStatus(findings) {
+    const out = {
+      open: 0,
+      in_progress: 0,
+      investigating: 0,
+      accepted_risk: 0,
+      resolved: 0,
+      false_positive: 0,
+      other: 0,
+    };
+    for (const f of findings || []) {
+      const k = statusKeyForFinding(f);
+      out[k] = Number(out[k] || 0) + 1;
+    }
+    return out;
+  }
 
-  // ===== DONUT (без gap, как раньше) =====
-  function donutHtml({ counts, total }) {
-    const order = ["critical", "high", "medium", "low", "info"];
-
-    const size = 420;
+  // ===== DONUT =====
+  function donutHtml({ counts, total, order, colorMap, idPrefix }) {
+    const size = 300;
     const cx = size / 2;
     const cy = size / 2;
 
-    const r = 145;
-    const stroke = 24;
+    const r = 102;
+    const stroke = 18;
     const c = 2 * Math.PI * r;
 
     // старт с 12 часов
@@ -134,7 +186,7 @@
           data-value="${val}"
           cx="${cx}" cy="${cy}" r="${r}"
           fill="none"
-          stroke="${COLORS[key]}"
+          stroke="${colorMap[key] || "#999"}"
           stroke-width="${stroke}"
           stroke-linecap="round"
           stroke-dasharray="${len} ${c - len}"
@@ -148,21 +200,21 @@
 
     const centerText = `
       <text x="${cx}" y="${cy - 8}" text-anchor="middle"
-        font-size="54" font-weight="900"
+        font-size="44" font-weight="900"
         fill="var(--color-text)"
-        id="donutCenterValue"
+        id="${idPrefix}CenterValue"
       >${total}</text>
 
       <text x="${cx}" y="${cy + 28}" text-anchor="middle"
         font-size="13" font-weight="800"
         fill="var(--color-text-secondary)"
-        id="donutCenterLabel"
+        id="${idPrefix}CenterLabel"
       >${RU.findings}</text>
     `;
 
     return `
       <div style="display:flex; justify-content:center; padding: 12px 6px 6px;">
-        <div id="donutBox" style="position:relative; width:${size}px; height:${size}px;">
+        <div id="${idPrefix}Box" style="position:relative; width:${size}px; height:${size}px;">
           <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
             ${ringBg}
             ${segs}
@@ -173,10 +225,10 @@
     `;
   }
 
-  function wireDonutInteractions({ total }) {
-    const box = document.getElementById("donutBox");
-    const centerValue = document.getElementById("donutCenterValue");
-    const centerLabel = document.getElementById("donutCenterLabel");
+  function wireDonutInteractions({ total, idPrefix, labelByKey, colorMap }) {
+    const box = document.getElementById(`${idPrefix}Box`);
+    const centerValue = document.getElementById(`${idPrefix}CenterValue`);
+    const centerLabel = document.getElementById(`${idPrefix}CenterLabel`);
     if (!box || !centerValue || !centerLabel) return;
 
     const segs = box.querySelectorAll(".donut-seg");
@@ -205,7 +257,7 @@
       el.addEventListener("mouseenter", () => {
         const key = safeStr(el.getAttribute("data-key"));
         const val = Number(el.getAttribute("data-value") || 0);
-        const label = sevLabel(key);
+        const label = labelByKey(key);
 
         dimOthers(el);
         setCenter(label, val);
@@ -238,10 +290,10 @@
         showTooltipAt({
           x,
           y,
-          title: sevLabel(key),
+          title: labelByKey(key),
           value: val,
           percent: window.vmTooltip ? window.vmTooltip.pct(val, total) : pct(val, total),
-          color: COLORS[lower(key)] || "#999",
+          color: colorMap[lower(key)] || "#999",
         });
       });
     });
@@ -455,12 +507,23 @@
             </div>
           </div>
 
-          <div class="card dashboard-chart-card" style="margin-top: 20px;">
-            <div class="card-body" style="padding: 18px 18px 12px;">
-              <div class="dashboard-chart-head">
-                <span class="dashboard-chart-head__title">${RU.chartTitle}</span>
+          <div class="dashboard-donut-grid" style="margin-top: 20px;">
+            <div class="card dashboard-chart-card">
+              <div class="card-body" style="padding: 18px 18px 12px;">
+                <div class="dashboard-chart-head">
+                  <span class="dashboard-chart-head__title">${RU.chartTitle}</span>
+                </div>
+                <div id="dashboardDonutSeverity" style="margin-top: 8px;">${RU.loading}</div>
               </div>
-              <div id="dashboardDonut" style="margin-top: 8px;">${RU.loading}</div>
+            </div>
+
+            <div class="card dashboard-chart-card">
+              <div class="card-body" style="padding: 18px 18px 12px;">
+                <div class="dashboard-chart-head">
+                  <span class="dashboard-chart-head__title">${RU.chartStatusTitle}</span>
+                </div>
+                <div id="dashboardDonutStatus" style="margin-top: 8px;">${RU.loading}</div>
+              </div>
             </div>
           </div>
 
@@ -525,13 +588,42 @@
 
       window.vmTooltip?.ensure();
 
-      // Donut
+      // Donuts
       const total = findings.length;
-      const counts = countBySeverity(findings);
-      const donutWrap = document.getElementById("dashboardDonut");
-      if (donutWrap) {
-        donutWrap.innerHTML = donutHtml({ counts, total });
-        wireDonutInteractions({ total });
+      const severityCounts = countBySeverity(findings);
+      const severityWrap = document.getElementById("dashboardDonutSeverity");
+      if (severityWrap) {
+        severityWrap.innerHTML = donutHtml({
+          counts: severityCounts,
+          total,
+          order: ["critical", "high", "medium", "low", "info"],
+          colorMap: COLORS,
+          idPrefix: "donutSeverity",
+        });
+        wireDonutInteractions({
+          total,
+          idPrefix: "donutSeverity",
+          labelByKey: sevLabel,
+          colorMap: COLORS,
+        });
+      }
+
+      const statusCounts = countByStatus(findings);
+      const statusWrap = document.getElementById("dashboardDonutStatus");
+      if (statusWrap) {
+        statusWrap.innerHTML = donutHtml({
+          counts: statusCounts,
+          total,
+          order: STATUS_ORDER,
+          colorMap: STATUS_COLORS,
+          idPrefix: "donutStatus",
+        });
+        wireDonutInteractions({
+          total,
+          idPrefix: "donutStatus",
+          labelByKey: statusLabel,
+          colorMap: STATUS_COLORS,
+        });
       }
 
       // Hosts list
